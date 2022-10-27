@@ -230,28 +230,47 @@ def evaluate(args, logger, dataloader, classifier, model):
     
     # Hungarian Matching. 
     # m = linear_assignment(histogram.max() - histogram)
-    m = linear_sum_assignment(histogram, maximize=True)
+    # m = linear_sum_assignment(histogram, maximize=True)
+    
+    # Hungarian Matching from STEGO
+    assignments = linear_sum_assignment(histogram.detach().cpu(), maximize=True)
 
+    histogram = histogram[np.argsort(assignments[1]), :]
+    
+    prefix = f'gen_files/{args.arch}_{args.res}_{args.method}'
+    torch.save(histogram, prefix + 'hist.pth')
+    tp = torch.diag(histogram)
+    fp = torch.sum(histogram, dim=0) - tp
+    fn = torch.sum(histogram, dim=1) - tp
+
+    iou = tp / (tp + fp + fn)
+    prc = tp / (tp + fn)
+    opc = torch.sum(tp) / torch.sum(histogram)
+
+    
+    res1 = {"mean_iou": iou[~torch.isnan(iou)].mean().item(),
+            "overall_precision (pixel accuracy)": opc.item(),
+    }
+    acc = prc 
     # Evaluate. 
-    acc = histogram[m[:, 0], m[:, 1]].sum() / histogram.sum() * 100
+    # acc = histogram[m[:, 0], m[:, 1]].sum() / histogram.sum() * 100
 
-    new_hist = np.zeros((args.K_test, args.K_test))
-    for idx in range(args.K_test):
-        new_hist[m[idx, 1]] = histogram[idx]
+    # new_hist = np.zeros((args.K_test, args.K_test))
+    # for idx in range(args.K_test):
+    #     new_hist[m[idx, 1]] = histogram[idx]
     
     # NOTE: Now [new_hist] is re-ordered to 12 thing + 15 stuff classses. 
-    res1 = get_result_metrics(new_hist)
+    # res1 = get_result_metrics(new_hist)
     logger.info('ACC  - All: {:.4f}'.format(res1['overall_precision (pixel accuracy)']))
     logger.info('mIOU - All: {:.4f}'.format(res1['mean_iou']))
 
     # For Table 2 - partitioned evaluation.
-    if args.thing and args.stuff:
-        res2 = get_result_metrics(new_hist[:12, :12])
-        logger.info('ACC  - Thing: {:.4f}'.format(res2['overall_precision (pixel accuracy)']))
-        logger.info('mIOU - Thing: {:.4f}'.format(res2['mean_iou']))
+    # if args.thing and args.stuff:
+    #     res2 = get_result_metrics(new_hist[:12, :12])
+    #     logger.info('ACC  - Thing: {:.4f}'.format(res2['overall_precision (pixel accuracy)']))
+    #     logger.info('mIOU - Thing: {:.4f}'.format(res2['mean_iou']))
 
-        res3 = get_result_metrics(new_hist[12:, 12:])
-        logger.info('ACC  - Stuff: {:.4f}'.format(res3['overall_precision (pixel accuracy)']))
-        logger.info('mIOU - Stuff: {:.4f}'.format(res3['mean_iou']))
-    
+    #     res3 = get_result_metrics(new_hist[12:, 12:])
+    #     logger.info('ACC  - Stuff: {:.4f}'.format(res3['overall_precision (pixel accuracy)']))
+    #     logger.info('mIOU - Stuff: {:.4f}'.format(res3['mean_iou']))
     return acc, res1
