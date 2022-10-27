@@ -229,7 +229,8 @@ def evaluate(args, logger, dataloader, classifier, model):
                 logger.info('{}/{}'.format(i, len(dataloader)))
     
     # Hungarian Matching. 
-    m = linear_assignment(histogram.max() - histogram)
+    # m = linear_assignment(histogram.max() - histogram)
+    m = linear_sum_assignment(histogram.detach().cpu(), maximize=True)
 
     # Evaluate. 
     acc = histogram[m[:, 0], m[:, 1]].sum() / histogram.sum() * 100
