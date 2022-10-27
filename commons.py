@@ -233,10 +233,10 @@ def evaluate(args, logger, dataloader, classifier, model):
     # m = linear_sum_assignment(histogram, maximize=True)
     
     # Hungarian Matching from STEGO
-    assignments = linear_sum_assignment(histogram.detach().cpu(), maximize=True)
+    assignments = linear_sum_assignment(histogram, maximize=True)
 
     histogram = histogram[np.argsort(assignments[1]), :]
-    
+    histogram = torch.Tensor(histogram)
     prefix = f'gen_files/{args.arch}_{args.res}_{args.method}'
     torch.save(histogram, prefix + 'hist.pth')
     tp = torch.diag(histogram)
