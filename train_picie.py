@@ -11,6 +11,7 @@ from utils import *
 from commons import * 
 from modules import fpn 
 from data.cityscapes_eval_dataset import EvalCityscapesRAW
+from data.cityscapes_train_dataset import TrainCityscapesRAW
 
 
 def parse_arguments():
@@ -41,7 +42,7 @@ def parse_arguments():
     parser.add_argument('--res', type=int, default=RES, help='Input size.')
     parser.add_argument('--res1', type=int, default=320, help='Input size scale from.')
     parser.add_argument('--res2', type=int, default=640, help='Input size scale to.')
-    parser.add_argument('--tar_res', type=int, default=160, help='Output Feature size.')
+    parser.add_argument('--tar_res', type=int, default=40, help='Output Feature size.')
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
@@ -53,7 +54,7 @@ def parse_arguments():
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--optim_type', type=str, default='Adam')
-    parser.add_argument('--num_init_batches', type=int, default=30)
+    parser.add_argument('--num_init_batches', type=int, default=20)
     parser.add_argument('--num_batches', type=int, default=1)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
     parser.add_argument('--in_dim', type=int, default=1024)
@@ -72,16 +73,16 @@ def parse_arguments():
     parser.add_argument('--mse', action='store_true', default=False)
 
     # Dataset. 
-    parser.add_argument('--augment', action='store_true', default=False)
-    parser.add_argument('--equiv', action='store_true', default=False)
+    parser.add_argument('--augment', action='store_true', default=True)
+    parser.add_argument('--equiv', action='store_true', default=True)
     parser.add_argument('--min_scale', type=float, default=0.5)
     parser.add_argument('--stuff', action='store_true', default=False)
     parser.add_argument('--thing', action='store_true', default=False)
-    parser.add_argument('--jitter', action='store_true', default=False)
-    parser.add_argument('--grey', action='store_true', default=False)
-    parser.add_argument('--blur', action='store_true', default=False)
-    parser.add_argument('--h_flip', action='store_true', default=False)
-    parser.add_argument('--v_flip', action='store_true', default=False)
+    parser.add_argument('--jitter', action='store_true', default=True)
+    parser.add_argument('--grey', action='store_true', default=True)
+    parser.add_argument('--blur', action='store_true', default=True)
+    parser.add_argument('--h_flip', action='store_true', default=True)
+    parser.add_argument('--v_flip', action='store_true', default=True)
     parser.add_argument('--random_crop', action='store_true', default=False)
     parser.add_argument('--val_type', type=str, default='train')
     parser.add_argument('--version', type=int, default=7)
@@ -202,20 +203,19 @@ def main(args, logger):
 
     # New trainset inside for-loop.
     inv_list, eqv_list = get_transform_params(args)
-    # trainset = get_dataset(args, mode='train', inv_list=inv_list, eqv_list=eqv_list)
-    trainset = EvalCityscapesRAW(args.data_root, res=args.res, split='train', mode='train',
-                                        label_mode=args.label_mode, long_image=args.long_image)
+    trainset = get_dataset(args, mode='train', inv_list=inv_list, eqv_list=eqv_list)
+    # trainset = TrainCityscapesRAW(args.data_root, res=args.res, split='train', mode='train')
     trainloader = torch.utils.data.DataLoader(trainset, 
-                                                batch_size=args.batch_size_cluster,
+                                                batch_size=args.batch_size_train,
                                                 shuffle=False, 
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
                                                 collate_fn=collate_train,
                                                 worker_init_fn=worker_init_fn(args.seed))
     
-    # testset    = get_dataset(args, mode='train_val')
-    testset = EvalCityscapesRAW(args.data_root, res=args.res, split='val', mode='train_val',
-                                        label_mode=args.label_mode, long_image=args.long_image)
+    testset    = get_dataset(args, mode='train_val')
+    # testset = EvalCityscapesRAW(args.data_root, res=args.res, split='val', mode='train_val',
+                                        # label_mode=args.label_mode, long_image=args.long_image)
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
                                              shuffle=False,
@@ -225,7 +225,7 @@ def main(args, logger):
                                              worker_init_fn=worker_init_fn(args.seed))
     
     # Before train.
-    _, _ = evaluate(args, logger, testloader, classifier1, model)
+    # _, _ = evaluate(args, logger, testloader, classifier1, model)
     
     if not args.eval_only:
         # Train start.

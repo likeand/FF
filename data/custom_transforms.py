@@ -225,6 +225,8 @@ class RandomResizedCrop(object):
     def __call__(self, indice, image):
         new_image = []
         res_tar   = self.tar_res if image.size(1) > 5 else self.res # View 1 or View 2? 
+        # image shape is (b, c, h, w) if c > 5, image is extracted feature, resize it to tar_res which may be 40 or 80;
+        # if c < 5, image is a picture of channel 3, resize it to res, which may be 320 or 640.
         
         for i, idx in enumerate(indice):
             img = image[[i]]

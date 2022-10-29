@@ -117,6 +117,7 @@ class FPNDecoder(nn.Module):
         else:
             self.mfactor = 4
             self.out_dim = args.in_dim
+        self.tar_res = args.tar_res
         self.layer4 = nn.Conv2d(512*self.mfactor//8, self.out_dim, kernel_size=1, stride=1, padding=0)
         self.layer3 = nn.Conv2d(512*self.mfactor//4, self.out_dim, kernel_size=1, stride=1, padding=0)
         self.layer2 = nn.Conv2d(512*self.mfactor//2, self.out_dim, kernel_size=1, stride=1, padding=0)
@@ -132,6 +133,7 @@ class FPNDecoder(nn.Module):
         o2 = self.upsample_add(o1, self.layer2(x['res4']))
         o3 = self.upsample_add(o2, self.layer3(x['res3']))
         o4 = self.upsample_add(o3, self.layer4(x['res2']))
+        F.interpolate(o4, self.tar_res, mode='bilinear')
         return o4
 
     def upsample_add(self, x, y):

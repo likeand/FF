@@ -132,6 +132,7 @@ class PanopticFPN(nn.Module):
             feat_w = img.shape[3] // self.patch_size
 
             image_feat = feat[:, 1:, :].reshape(feat.shape[0], feat_h, feat_w, -1).permute(0, 3, 1, 2)
+        image_feat = F.interpolate(image_feat, self.args.tar_res, mode='bilinear')
         return image_feat
     
     def forward(self, img):

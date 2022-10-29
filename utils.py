@@ -11,8 +11,8 @@ import faiss
 
 from data.coco_train_dataset import TrainCOCO
 from data.coco_eval_dataset import EvalCOCO 
-from data.cityscapes_train_dataset import TrainCityscapes
-from data.cityscapes_eval_dataset import EvalCityscapes
+from data.cityscapes_train_dataset import TrainCityscapes, TrainCityscapesRAW
+from data.cityscapes_eval_dataset import EvalCityscapes, EvalCityscapesRAW
 
 ################################################################################
 #                                  General-purpose                             #
@@ -302,16 +302,20 @@ def collate_train_baseline(batch):
 def get_dataset(args, mode, inv_list=[], eqv_list=[]):
     if args.cityscapes:
         if mode == 'train':
-            dataset = TrainCityscapes(args.data_root, labeldir=args.save_model_path, res1=args.res1, res2=args.res2, tar_res=args.tar_res,
+            func = TrainCityscapesRAW if 'multiscale' in args.method else TrainCityscapes
+            dataset = func(args.data_root, labeldir=args.save_model_path, res1=args.res1, res2=args.res2, tar_res=args.tar_res,
                                       split='train', mode='compute', inv_list=inv_list, eqv_list=eqv_list, scale=(args.min_scale, 1))
         elif mode == 'train_val':
-            dataset = EvalCityscapes(args.data_root, res=args.res, split='val', mode='test',
+            func = EvalCityscapesRAW if 'multiscale' in args.method else EvalCityscapes
+            dataset = func(args.data_root, res=args.res, split='val', mode='test',
                                      label_mode=args.label_mode, long_image=args.long_image)
         elif mode == 'eval_val':
-            dataset = EvalCityscapes(args.data_root, res=args.res, split=args.val_type, 
+            func = EvalCityscapesRAW if 'multiscale' in args.method else EvalCityscapes
+            dataset = func(args.data_root, res=args.res, split=args.val_type, 
                                      mode='test', label_mode=args.label_mode, long_image=args.long_image, label=False)
         elif mode == 'eval_test':
-            dataset = EvalCityscapes(args.data_root, res=args.res, split='val', mode='test',
+            func = EvalCityscapesRAW if 'multiscale' in args.method else EvalCityscapes
+            dataset = func(args.data_root, res=args.res, split='val', mode='test',
                                      label_mode=args.label_mode, long_image=args.long_image)
     else:
         if mode == 'train':
