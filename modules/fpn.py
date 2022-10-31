@@ -35,7 +35,7 @@ class PanopticFPN(nn.Module):
             return mask * high_feats + (1-mask) * outs
 
         elif self.args.method == 'multiscale':
-            assert x.shape[-1] == 2048, "size not right"
+            assert x.shape[-1] == 2048, f"size not right, requires (1024,2048), receives {x.shape[-2:]}"
             all_cuts = make_crop(x)
             all_feature = []
             for cuts in all_cuts:
@@ -80,8 +80,8 @@ class PanopticFPN(nn.Module):
         all_features = []
         for cut in cuts:
             image = F.interpolate(cut, (self.args.res, self.args.res)).to(cut.device)
-            with torch.no_grad():
-                classifications, features = self.forward_classification(image) # (b, n, h, w) n = 1000
+            # with torch.no_grad():
+            classifications, features = self.forward_classification(image) # (b, n, h, w) n = 1000
             # classifications[classifications < 35] = 0
             predictions.append(classifications)
             all_features.append(features)
@@ -91,10 +91,10 @@ class PanopticFPN(nn.Module):
         features = []
         for cut in cuts:
             image = F.interpolate(cut, (self.args.res, self.args.res)).to(cut.device)
-            with torch.no_grad():
-                feats = self.backbone(image)
-                outs  = self.decoder(feats) 
-                features.append(outs)
+            # with torch.no_grad():
+            feats = self.backbone(image)
+            outs  = self.decoder(feats) 
+            features.append(outs)
         return features  
 
     def forward_classification(self, x, use_feats=False):

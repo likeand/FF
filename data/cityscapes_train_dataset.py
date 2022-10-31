@@ -255,7 +255,7 @@ class TrainCityscapesRAW(data.Dataset):
             elif self.view == 2:
                 # image = TF.resize(image, self.res1, Image.BILINEAR)
                 image = self.transform_inv(index, image, 1)
-                image = TF.resize(image, self.res1, Image.BILINEAR)
+                # image = TF.resize(image, self.res1, Image.BILINEAR)
                 image = self.transform_tensor(image)
             else:
                 raise ValueError('View [{}] is an invalid option.'.format(self.view))
@@ -271,7 +271,7 @@ class TrainCityscapesRAW(data.Dataset):
             # image2 = TF.resize(image, self.res1, Image.BILINEAR)
             # image2 = self.transform_inv(index, image2, 1)
             image2 = self.transform_inv(index, image, 1)
-            image2 = TF.resize(image2, self.res1, Image.BILINEAR)
+            # image2 = TF.resize(image2, self.res1, Image.BILINEAR)
             image2 = self.transform_tensor(image2)
 
             return (image1, image2)

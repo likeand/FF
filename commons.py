@@ -251,7 +251,7 @@ def evaluate(args, logger, dataloader, classifier, model):
     res1 = {"mean_iou": iou[~torch.isnan(iou)].mean().item(),
             "overall_precision (pixel accuracy)": opc.item(),
     }
-    acc = prc 
+    acc = opc.item() 
     # Evaluate. 
     # acc = histogram[m[:, 0], m[:, 1]].sum() / histogram.sum() * 100
 

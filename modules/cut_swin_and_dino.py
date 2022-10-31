@@ -104,21 +104,21 @@ class PanopticFPN(nn.Module):
         classification = rearrange(rearr_classification, '(b h w) n -> b n h w', b=b, h=h, w=w)
         return classification, feature
     
-    def forward_features(self, x):
-        x = x.to(self.device)
-        net = self.dino  
-        with torch.no_grad():
-            x = net.patch_embed(x)
-            if net.ape:
-                x = x + net.absolute_pos_embed
-            x = net.pos_drop(x)
-            # feats = []
-            for layer in net.layers:
-                x = layer(x)
-                # feats.append(x)
-            x = net.norm(x)  # B L C
-            # feats.append(x)
-            return x
+    # def forward_features(self, x):
+    #     x = x.to(self.device)
+    #     net = self.dino  
+    #     with torch.no_grad():
+    #         x = net.patch_embed(x)
+    #         if net.ape:
+    #             x = x + net.absolute_pos_embed
+    #         x = net.pos_drop(x)
+    #         # feats = []
+    #         for layer in net.layers:
+    #             x = layer(x)
+    #             # feats.append(x)
+    #         x = net.norm(x)  # B L C
+    #         # feats.append(x)
+    #         return x
 
     def forward_dino(self, img, n=1):
         if not img.shape[3] == 384:
