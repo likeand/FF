@@ -34,19 +34,19 @@ def parse_arguments():
     
     ## arch to choose:
     ## resnet18, resnet50, dino, swinv2
-    parser.add_argument('--arch', type=str, default='resnet50')
-    parser.add_argument('--arch_local_save', type=str, default="/data0/zx_files/models/mae_visualize_vit_large.pth")  
+    parser.add_argument('--arch', type=str, default='swinv2')
+    # parser.add_argument('--arch_local_save', type=str, default="/data0/zx_files/models/mae_visualize_vit_large.pth")  
     parser.add_argument('--pretrain', action='store_true', default=True)
     ## res to choose: 320, 384, 640
-    RES = 320
+    RES = 384
     parser.add_argument('--res', type=int, default=RES, help='Input size.')
-    parser.add_argument('--res1', type=int, default=320, help='Input size scale from.')
-    parser.add_argument('--res2', type=int, default=640, help='Input size scale to.')
+    parser.add_argument('--res1', type=int, default=RES, help='Input size scale from.')
+    parser.add_argument('--res2', type=int, default=RES, help='Input size scale to.')
     parser.add_argument('--tar_res', type=int, default=40, help='Output Feature size.')
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    parser.add_argument('--method', type=str, default='multiscale')
+    parser.add_argument('--method', type=str, default='cam')
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     parser.add_argument('--batch_size_train', type=int, default=2)
     parser.add_argument('--batch_size_test', type=int, default=4)
