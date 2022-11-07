@@ -43,9 +43,9 @@ def parse_arguments():
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    parser.add_argument('--method', type=str, default='multiscale')
+    parser.add_argument('--method', type=str, default='aff')
     parser.add_argument('--batch_size_cluster', type=int, default=256)
-    parser.add_argument('--batch_size_train', type=int, default=2)
+    parser.add_argument('--batch_size_train', type=int, default=4)
     parser.add_argument('--batch_size_test', type=int, default=4)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=0)

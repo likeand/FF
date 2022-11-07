@@ -7,7 +7,9 @@ from .dino import vision_transformer as vit
 from .swin_transformer_v2 import SwinTransformerV2
 from einops import rearrange
 import matplotlib.pyplot as plt 
-from module_utils import make_crop, make_one_from_crop
+from module_utils import make_crop, make_one_from_crop, MSCAM
+
+
 class PanopticFPN(nn.Module):
     def __init__(self, args):
         super(PanopticFPN, self).__init__()
@@ -54,6 +56,8 @@ class PanopticFPN(nn.Module):
         self.args = args 
         self.conv = nn.Conv2d(768, 1024, 1)
         torch.nn.init.kaiming_uniform_(self.conv.weight)
+        self.mscam = MSCAM(1024, 1024 // 2)
+        
 
     def get_classification(self, cuts):        
         predictions = []
@@ -67,7 +71,9 @@ class PanopticFPN(nn.Module):
             all_features.append(features)
         return predictions, all_features
 
-    def forward_swin(self, x):
+    def forward_swin(self, x, return_feats=False):
+        # if return_feats:
+        feats = []
         net = self.swin 
         x = x.to(self.device)
         with torch.no_grad():
@@ -77,13 +83,21 @@ class PanopticFPN(nn.Module):
             x = net.pos_drop(x)
             for layer in net.layers:
                 x = layer(x)
-                # feats.append(x)
-            x = net.norm(x)  # B L C
-            b, l, c = x.shape
-            h = int(l ** 0.5)
-            w = h
-            rearr_x = rearrange(x, 'b (h w) c -> b c h w', b=b, h=h, w=w)
-            return x, rearr_x
+                if return_feats:
+                    feats.append(x)
+            org_x = net.norm(x)  # B L C
+            feats.append(x)
+            rets = []
+            for x in feats:
+                b, l, c = x.shape
+                h = int(l ** 0.5)
+                w = h
+                rearr_x = rearrange(x, 'b (h w) c -> b c h w', b=b, h=h, w=w)
+                rets.append(rearr_x)
+            if return_feats:
+                return rets 
+            else:
+                return org_x, rets[-1]
             
     def forward_classification(self, x):
         net = self.swin 
@@ -150,7 +164,22 @@ class PanopticFPN(nn.Module):
             high_feature = F.interpolate(high_feature, low_feature.shape[-2:])
             low_feature = self.conv(low_feature)
             return mask * high_feature + (1 - mask) * low_feature
+        elif self.args.method == 'aff_nodino':
+            low_feature = self.forward_dino(img)
 
+            classification, high_feature = self.forward_classification(img)
+            high_feature = F.interpolate(high_feature, low_feature.shape[-2:])
+            low_feature = self.conv(low_feature)
+            mask = self.mscam(high_feature + low_feature)
+            return mask * high_feature + (1 - mask) * low_feature
+        elif self.args.method == 'aff_dino':
+            low_feature = self.forward_dino(img)
+            feats = self.forward_swin(img, True)
+            # classification, high_feature = self.forward_classification(img)
+            high_feature = F.interpolate(high_feature, low_feature.shape[-2:])
+            low_feature = self.conv(low_feature)
+            mask = self.mscam(high_feature + low_feature)
+            return mask * high_feature + (1 - mask) * low_feature
         elif self.args.method == 'multiscale':
             assert img.shape[-1] == 2048, "size not right"
             all_cuts = make_crop(img)

@@ -2,7 +2,86 @@ import einops
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F 
+from typing import List
 
+class MSCAM(nn.Module):
+    def __init__(self, inchannel: int, midchannel: int):
+        super().__init__()
+        self.channel_conv_d = nn.Conv2d(inchannel, midchannel, 1)
+        self.spatial_conv_d = nn.Conv2d(inchannel, midchannel, 1)
+        self.channel_conv_u = nn.Conv2d(midchannel, inchannel, 1)
+        self.spatial_conv_u = nn.Conv2d(midchannel, inchannel, 1)
+        
+    def forward(self, x):
+        channel_attn = F.adaptive_avg_pool2d(x, 1)
+        channel_attn = self.channel_conv_d(channel_attn)
+        channel_attn = F.relu(channel_attn, inplace=True)
+        channel_attn = self.channel_conv_u(channel_attn)
+        
+        spatial_attn = self.spatial_conv_d(x)
+        spatial_attn = F.relu(spatial_attn, inplace=True)
+        spatial_attn = self.spatial_conv_u(spatial_attn)
+        fusion = channel_attn.expand_as(spatial_attn) + spatial_attn 
+        fusion = F.sigmoid(fusion)
+        return x * fusion 
+        
+
+class LayerFusion(nn.Module):
+    def __init__(self, in_channels: List[int], out_dim: int, fusion_mode: str):
+        '''
+            @params in_channels: list of ints which indicates each layer in_channel, [256, 512, 1024, 2048] for resnet.
+            @params out_dim: integer that indicates final layer output dimension.
+            @params fusion_mode: str, possible choices 'aff', 'cat', 'add'. 
+        '''
+        super().__init__()   
+        self.in_channels = in_channels
+        self.out_dim = out_dim 
+        self.fusion_mode = fusion_mode 
+        
+        self.convs = []
+        for i in range(len(in_channels) - 1):
+            outc = in_channels[i]
+            inc = in_channels[i+1]
+            self.convs.append(nn.Conv2d(inc, outc, 1))
+                
+        if fusion_mode == 'aff':
+            self.ms_cams = []
+            for i in range(len(in_channels) - 1):
+                inc = in_channels[i]
+                self.ms_cams.append(MSCAM(inc, inc // 2))
+        
+        if fusion_mode == 'cat':
+            self.convs = []
+            for i in range(len(in_channels) - 1):
+                outc = in_channels[i]
+                inc = in_channels[i+1]
+                self.convs.append(nn.Conv2d(inc + outc, outc, 1))
+                
+    def upsample_add(self, x, y):
+        _, _, H, W = y.size()
+        return F.interpolate(x, size=(H, W), mode='bilinear', align_corners=False) + y 
+    
+    def forward(self, feats):
+        fusion_feats = feats[-1]
+        for i in range(len(feats) - 2, -1, -1):
+            if self.fusion_mode == 'aff':
+                fusion_feats = self.convs[i](fusion_feats)
+                fusion_feats = F.interpolate(fusion_feats, feats[i].shape[-2:], mode='bilinear')
+                mask = self.ms_cams[i](fusion_feats + feats[i])
+                fusion_feats = mask * fusion_feats + (1 - mask) * feats[i]
+
+            elif self.fusion_mode == 'add':
+                fusion_feats = self.convs[i](fusion_feats)
+                fusion_feats = F.interpolate(fusion_feats, feats[i].shape[-2:], mode='bilinear')
+                fusion_feats = fusion_feats + feats[i]
+                
+            elif self.fusion_mode == 'cat':
+                fusion_feats = F.interpolate(fusion_feats, feats[i].shape[-2:], mode='bilinear')
+                fusion_feats = torch.cat([fusion_feats, feats[i]], dim=1)
+                fusion_feats = self.convs[i](fusion_feats)
+                
+        return fusion_feats 
+        
 def make_crop(img):
     '''
         @params img: Tensor of shape (b, 3, 1024, 2048)
@@ -88,3 +167,16 @@ def make_one_from_crop(cuts1, cuts2, cuts3, out_shape=384):
     weight[weight == 0] = 1
     out = out / weight 
     return out
+
+
+
+if __name__ == "__main__":
+    feats = [
+        torch.randn(1, 256, 160, 160),
+        torch.randn(1, 512, 80, 80),
+        torch.randn(1, 1024, 40, 40)
+        ]
+    for mode in ['aff', 'add', 'cat']:    
+        lf = LayerFusion([256, 512, 1024], 256, mode)
+        out = lf.forward(feats)
+        print(out.shape)

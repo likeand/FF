@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F 
 from . import backbone
-from module_utils import make_crop, make_one_from_crop
+from module_utils import make_crop, make_one_from_crop, MSCAM
 from einops import rearrange
 
 class PanopticFPN(nn.Module):
@@ -19,6 +19,8 @@ class PanopticFPN(nn.Module):
         
         self.conv = nn.Conv2d(self.backbone.fc.weight.shape[-1], args.in_dim, 1)
         self.args = args
+        
+        self.ms_cam = MSCAM(args.in_dim, args.in_dim // 2)
 
     def forward(self, x):
         if self.args.method == 'cam':
@@ -33,7 +35,17 @@ class PanopticFPN(nn.Module):
             mask = mask.unsqueeze(1) # (b, 1, h, w)
             mask = F.interpolate(mask.float(), outs.shape[-2:])
             return mask * high_feats + (1-mask) * outs
-
+        elif self.args.method == 'aff':
+            x = F.interpolate(x, (self.args.res, self.args.res))
+            feats = self.backbone(x)
+            outs  = self.decoder(feats) 
+            classification, high_feats = self.forward_classification(feats, use_feats=True)
+            high_feats = self.conv(high_feats)
+            high_feats = F.interpolate(high_feats, outs.shape[-2:])
+            ms_cam = self.ms_cam(high_feats + outs)
+            return ms_cam * high_feats + (1 - ms_cam) * outs
+        elif self.args.method == 'gff':
+            pass     
         elif self.args.method == 'multiscale':
             assert x.shape[-1] == 2048, f"size not right, requires (1024,2048), receives {x.shape[-2:]}"
             all_cuts = make_crop(x)

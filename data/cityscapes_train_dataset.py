@@ -165,9 +165,9 @@ class TrainCityscapes(data.Dataset):
             label1 = label1.view(X1, X1).unsqueeze_(0).unsqueeze_(0)
             label2 = label2.view(X2, X2).unsqueeze_(0).unsqueeze_(0)
 
-            size = self.tar_res
-            label1 = F.interpolate(label1.float(), (size, size), mode='nearest').long()[0,0]
-            label2 = F.interpolate(label2.float(), (size, size), mode='nearest').long()[0,0]
+            # size = self.tar_res
+            # label1 = F.interpolate(label1.float(), (size, size), mode='nearest').long()[0,0]
+            # label2 = F.interpolate(label2.float(), (size, size), mode='nearest').long()[0,0]
 
             return label1, label2
 
