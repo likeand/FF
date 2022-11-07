@@ -5,12 +5,12 @@ import torch.nn.functional as F
 from typing import List
 
 class MSCAM(nn.Module):
-    def __init__(self, inchannel: int, midchannel: int):
+    def __init__(self, inchannel: int, midchannel: int, device='cuda'):
         super().__init__()
-        self.channel_conv_d = nn.Conv2d(inchannel, midchannel, 1)
-        self.spatial_conv_d = nn.Conv2d(inchannel, midchannel, 1)
-        self.channel_conv_u = nn.Conv2d(midchannel, inchannel, 1)
-        self.spatial_conv_u = nn.Conv2d(midchannel, inchannel, 1)
+        self.channel_conv_d = nn.Conv2d(inchannel, midchannel, 1, device=device)
+        self.spatial_conv_d = nn.Conv2d(inchannel, midchannel, 1, device=device)
+        self.channel_conv_u = nn.Conv2d(midchannel, inchannel, 1, device=device)
+        self.spatial_conv_u = nn.Conv2d(midchannel, inchannel, 1, device=device)
         
     def forward(self, x):
         channel_attn = F.adaptive_avg_pool2d(x, 1)
@@ -27,11 +27,12 @@ class MSCAM(nn.Module):
         
 
 class LayerFusion(nn.Module):
-    def __init__(self, in_channels: List[int], out_dim: int, fusion_mode: str):
+    def __init__(self, in_channels: List[int], out_dim: int, fusion_mode: str, device: str = 'cuda'):
         '''
             @params in_channels: list of ints which indicates each layer in_channel, [256, 512, 1024, 2048] for resnet.
             @params out_dim: integer that indicates final layer output dimension.
-            @params fusion_mode: str, possible choices 'aff', 'cat', 'add'. 
+            @params fusion_mode: str, available choices 'aff', 'cat', 'add'. 
+            @params device: 'cuda' or 'cpu'.
         '''
         super().__init__()   
         self.in_channels = in_channels
@@ -42,20 +43,20 @@ class LayerFusion(nn.Module):
         for i in range(len(in_channels) - 1):
             outc = in_channels[i]
             inc = in_channels[i+1]
-            self.convs.append(nn.Conv2d(inc, outc, 1))
+            self.convs.append(nn.Conv2d(inc, outc, 1, device=device))
                 
         if fusion_mode == 'aff':
             self.ms_cams = []
             for i in range(len(in_channels) - 1):
                 inc = in_channels[i]
-                self.ms_cams.append(MSCAM(inc, inc // 2))
+                self.ms_cams.append(MSCAM(inc, inc // 2, device=device))
         
         if fusion_mode == 'cat':
             self.convs = []
             for i in range(len(in_channels) - 1):
                 outc = in_channels[i]
                 inc = in_channels[i+1]
-                self.convs.append(nn.Conv2d(inc + outc, outc, 1))
+                self.convs.append(nn.Conv2d(inc + outc, outc, 1, device=device))
                 
     def upsample_add(self, x, y):
         _, _, H, W = y.size()

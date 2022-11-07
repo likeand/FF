@@ -34,19 +34,20 @@ def parse_arguments():
     
     ## arch to choose:
     ## resnet18, resnet50, dino, swinv2
-    parser.add_argument('--arch', type=str, default='resnet50')
+    arch = 'swinv2'
+    parser.add_argument('--arch', type=str, default=arch)
     # parser.add_argument('--arch_local_save', type=str, default="/data0/zx_files/models/mae_visualize_vit_large.pth")  
     parser.add_argument('--pretrain', action='store_true', default=True)
     ## res to choose: 320, 384, 640
-    RES = 384
+    RES = 384 if 'swinv2' in arch else 320
     parser.add_argument('--res', type=int, default=RES, help='Input size.')
     parser.add_argument('--res1', type=int, default=RES, help='Input size scale from.')
     parser.add_argument('--res2', type=int, default=RES, help='Input size scale to.')
-    parser.add_argument('--tar_res', type=int, default=40, help='Output Feature size.')
+    parser.add_argument('--tar_res', type=int, default=80, help='Output Feature size.')
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    parser.add_argument('--method', type=str, default='aff')
+    parser.add_argument('--method', type=str, default='swin_dino_LFaff')
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     parser.add_argument('--batch_size_train', type=int, default=2)
     parser.add_argument('--batch_size_test', type=int, default=4)
@@ -57,7 +58,7 @@ def parse_arguments():
     parser.add_argument('--num_init_batches', type=int, default=20)
     parser.add_argument('--num_batches', type=int, default=1)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
-    parser.add_argument('--in_dim', type=int, default=1024)
+    parser.add_argument('--in_dim', type=int, default=768)
     parser.add_argument('--X', type=int, default=80)
 
     # Loss. 

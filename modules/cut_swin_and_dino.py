@@ -7,7 +7,7 @@ from .dino import vision_transformer as vit
 from .swin_transformer_v2 import SwinTransformerV2
 from einops import rearrange
 import matplotlib.pyplot as plt 
-from module_utils import make_crop, make_one_from_crop, MSCAM
+from module_utils import LayerFusion, make_crop, make_one_from_crop, MSCAM, LayerFusion
 
 
 class PanopticFPN(nn.Module):
@@ -34,29 +34,17 @@ class PanopticFPN(nn.Module):
                 key = k.split('net.')[-1]
                 nd[key] = dic[k]
         self.dino.load_state_dict(nd)
-        # # RESUME = f'{args.model_dir}/dino_vitbase8_pretrain.pth'
-        # # self.dino.load_state_dict(torch.load(RESUME))
-        # # print(f'loaded state dict from {RESUME}')
-        # self.obj_decoder  = FPNDecoder(args, self.num_features, args.obj_classes)
-        # obj_decoder_path = '/home/zhulifu/unsup_seg/old_3090/picie_and_mynet/PiCIE/test_cut_swin_35_wtrim_on_val_wnorm_centroids.pth'
-        # # self.obj_decoder.load_state_dict(torch.load(obj_decoder_path))
-        # self.obj_decoder.classifier.weight.data = torch.load(obj_decoder_path).unsqueeze(-1).unsqueeze(-1)
-        # print(f'loaded state dict for swin decoder from {obj_decoder_path}')
-        # self.obj_decoder.to(args.device)
-        
-        # self.things_decoder  = FPNDecoder(args, 100, args.things_classes)
-        # # things_decoder_path = '/home/zhulifu/unsup_seg/old_3090/picie_and_mynet/PiCIE/test_dino_on_val_wnorm_centroids.pth'
-        # things_decoder_path = '/home/zhulifu/unsup_seg/STEGO-master/models/cityscapes_vit_base_1.ckpt'
-        # data = dic['cluster_probe.clusters'].unsqueeze(-1).unsqueeze(-1)
-        # # self.things_decoder.load_state_dict(torch.load(things_decoder_path))
-        # self.things_decoder.classifier.weight.data = data
-        # print(f'loaded state dict for swin decoder from {things_decoder_path}')
-        # self.things_decoder.to(args.device)
+
         self.device = args.device
         self.args = args 
         self.conv = nn.Conv2d(768, 1024, 1)
         torch.nn.init.kaiming_uniform_(self.conv.weight)
         self.mscam = MSCAM(1024, 1024 // 2)
+        if "LF" in args.method:
+            if "swin_only" in args.method:
+                self.lf = LayerFusion([256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
+            else:
+                self.lf = LayerFusion([768, 256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
         
 
     def get_classification(self, cuts):        
@@ -101,16 +89,6 @@ class PanopticFPN(nn.Module):
             
     def forward_classification(self, x):
         net = self.swin 
-        # x = x.to(self.device)
-        # with torch.no_grad():
-        #     x = net.patch_embed(x)
-        #     if net.ape:
-        #         x = x + net.absolute_pos_embed
-        #     x = net.pos_drop(x)
-        #     for layer in net.layers:
-        #         x = layer(x)
-        #         # feats.append(x)
-        #     x = net.norm(x)  # B L C
         x, feature = self.forward_swin(x)
         b, c, h, w = feature.shape
         rearr_x = rearrange(x, 'b l c -> (b l) c') 
@@ -118,22 +96,6 @@ class PanopticFPN(nn.Module):
         classification = rearrange(rearr_classification, '(b h w) n -> b n h w', b=b, h=h, w=w)
         return classification, feature
     
-    # def forward_features(self, x):
-    #     x = x.to(self.device)
-    #     net = self.dino  
-    #     with torch.no_grad():
-    #         x = net.patch_embed(x)
-    #         if net.ape:
-    #             x = x + net.absolute_pos_embed
-    #         x = net.pos_drop(x)
-    #         # feats = []
-    #         for layer in net.layers:
-    #             x = layer(x)
-    #             # feats.append(x)
-    #         x = net.norm(x)  # B L C
-    #         # feats.append(x)
-    #         return x
-
     def forward_dino(self, img, n=1):
         if not img.shape[3] == 384:
             img = F.interpolate(img, (384, 384)) 
@@ -146,7 +108,7 @@ class PanopticFPN(nn.Module):
             feat_w = img.shape[3] // self.patch_size
 
             image_feat = feat[:, 1:, :].reshape(feat.shape[0], feat_h, feat_w, -1).permute(0, 3, 1, 2)
-        image_feat = F.interpolate(image_feat, self.args.tar_res, mode='bilinear')
+        # image_feat = F.interpolate(image_feat, self.args.tar_res, mode='bilinear')
         return image_feat
     
     def forward(self, img):
@@ -163,7 +125,22 @@ class PanopticFPN(nn.Module):
             
             high_feature = F.interpolate(high_feature, low_feature.shape[-2:])
             low_feature = self.conv(low_feature)
-            return mask * high_feature + (1 - mask) * low_feature
+            fusion = mask * high_feature + (1 - mask) * low_feature
+            return F.interpolate(fusion, self.args.tar_res, mode='bilinear')
+        elif self.args.method == 'swin_only_LFaff':
+            feats = self.forward_swin(img)
+            fusion = self.lf(feats[:-1])
+            return fusion 
+
+        elif self.args.method == 'swin_dino_LFaff':
+            feats = self.forward_swin(img, return_feats=True) # img (b, 3, 384, 384) feats[ (b, 256, 48, 48), (b, 512, 24, 24), (b, 1024, 12, 12), (b, 1024, 12, 12), (b, 1024, 12, 12)] -2, -1 same.
+            dinofeat = self.forward_dino(img) #(b, 768, 160, 160)
+            feats = [dinofeat] + feats[:-1]  # [dinofeat, f0, f1, f2, f3]
+            fusion = self.lf(feats)
+            # return dinofeat
+            return F.interpolate(fusion, self.args.tar_res, mode='bilinear')
+
+            
         elif self.args.method == 'aff_nodino':
             low_feature = self.forward_dino(img)
 
@@ -171,7 +148,9 @@ class PanopticFPN(nn.Module):
             high_feature = F.interpolate(high_feature, low_feature.shape[-2:])
             low_feature = self.conv(low_feature)
             mask = self.mscam(high_feature + low_feature)
-            return mask * high_feature + (1 - mask) * low_feature
+            fusion = mask * high_feature + (1 - mask) * low_feature
+            return F.interpolate(fusion, self.args.tar_res, mode='bilinear')
+
         elif self.args.method == 'aff_dino':
             low_feature = self.forward_dino(img)
             feats = self.forward_swin(img, True)
@@ -179,7 +158,9 @@ class PanopticFPN(nn.Module):
             high_feature = F.interpolate(high_feature, low_feature.shape[-2:])
             low_feature = self.conv(low_feature)
             mask = self.mscam(high_feature + low_feature)
-            return mask * high_feature + (1 - mask) * low_feature
+            fusion = mask * high_feature + (1 - mask) * low_feature
+            return F.interpolate(fusion, self.args.tar_res, mode='bilinear')
+
         elif self.args.method == 'multiscale':
             assert img.shape[-1] == 2048, "size not right"
             all_cuts = make_crop(img)
@@ -209,8 +190,8 @@ class PanopticFPN(nn.Module):
             mask = mask.unsqueeze(1) # (b, 1, h, w)
             mask = F.interpolate(mask.float(), low_feats.shape[-2:])
             low_feats = self.conv(low_feats)
-            return mask * high_feats + (1 - mask) * low_feats
-
+            fusion = mask * high_feats + (1 - mask) * low_feats
+            return F.interpolate(fusion, self.args.tar_res, mode='bilinear')
         else:
             print(f'Unknow method {self.args.method}')
 

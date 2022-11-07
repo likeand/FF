@@ -31,7 +31,7 @@ def parse_arguments():
     # Train. 
     
     ## arch to choose:
-    ## resnet18, resnet50, dino, swinv2
+    ## resnet18, resnet50, dino, swinv2, picie, stego
     parser.add_argument('--arch', type=str, default='resnet50')
     parser.add_argument('--arch_local_save', type=str, default="/data0/zx_files/models/mae_visualize_vit_large.pth")  
     parser.add_argument('--pretrain', action='store_true', default=True)

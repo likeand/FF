@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F 
 from . import backbone
-from module_utils import make_crop, make_one_from_crop, MSCAM
+from module_utils import make_crop, make_one_from_crop, MSCAM, LayerFusion
 from einops import rearrange
 
 class PanopticFPN(nn.Module):
@@ -21,6 +21,7 @@ class PanopticFPN(nn.Module):
         self.args = args
         
         self.ms_cam = MSCAM(args.in_dim, args.in_dim // 2)
+        self.lf = LayerFusion([256, 512, 1024, 2048], args.in_dim, args.method.split('LF')[-1])
 
     def forward(self, x):
         if self.args.method == 'cam':
@@ -44,8 +45,12 @@ class PanopticFPN(nn.Module):
             high_feats = F.interpolate(high_feats, outs.shape[-2:])
             ms_cam = self.ms_cam(high_feats + outs)
             return ms_cam * high_feats + (1 - ms_cam) * outs
-        elif self.args.method == 'gff':
-            pass     
+        elif self.args.method == 'LFaff':
+            x = F.interpolate(x, (self.args.res, self.args.res))
+            feats = self.backbone(x)
+            feats = [feats[f'res{i}'] for i in range(2, 6)]
+            return self.lf(feats)
+                 
         elif self.args.method == 'multiscale':
             assert x.shape[-1] == 2048, f"size not right, requires (1024,2048), receives {x.shape[-2:]}"
             all_cuts = make_crop(x)
