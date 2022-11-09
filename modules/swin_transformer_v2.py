@@ -622,6 +622,11 @@ class SwinTransformerV2(nn.Module):
         x = self.forward_features(x)
         x = self.head(x)
         return x
+    
+    def forward_classification(self, x):
+        x = self.forward_features(x)
+        x = self.head(x)
+        return x
 
     def flops(self):
         flops = 0

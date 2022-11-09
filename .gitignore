@@ -1,6 +1,8 @@
 /gen_files
 /train_logs
+/test_logs
 /train_results
 /draw_image_result
 /__pycache__
+/cams
 

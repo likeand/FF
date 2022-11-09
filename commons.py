@@ -15,7 +15,7 @@ def get_model(args):
     if args.arch.startswith('resnet'):
         model = fpn.PanopticFPN(args)
     elif args.arch == 'dino':
-        model = stego.PanopticFPN(args)
+        model = cut_swin_and_dino.PanopticFPN(args)
     elif args.arch == 'swinv2':
         model = cut_swin_and_dino.PanopticFPN(args)
     # model = cut_swin_and_dino.PanopticFPN(args)

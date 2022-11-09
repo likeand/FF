@@ -98,33 +98,7 @@ def parse_arguments():
  
     return parser.parse_args()
 
-class UnNormalize(object):
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
 
-    def __call__(self, tensor):
-        """
-        Args:
-            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
-        Returns:
-            Tensor: Normalized image.
-        """
-        for t, m, s in zip(tensor, self.mean, self.std):
-            t.mul_(s).add_(m)
-            # The normalize code -> t.sub_(m).div_(s)
-        return tensor
-def getStat():
-    '''
-    Compute mean and variance for training data
-    :param train_data: 自定义类Dataset(或ImageFolder即可)
-    :return: (mean, std)
-    '''
-    # stat = ([-0.8600419, -0.5789229, -0.5359389], [0.7740311, 0.8117282, 0.792767]) # calulated after normalize by imagenet mean std;
-    stat = ([0.28805077, 0.32632148, 0.2854132], [0.17725338, 0.18182696, 0.17837301]) # raw image calculated.
-    if stat is not None:
-        return stat
-    
 def get_model(args):
     if args.arch.startswith('resnet'):
         model = fpn.PanopticFPN(args)

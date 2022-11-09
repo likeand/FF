@@ -222,8 +222,8 @@ class EvalCityscapesRAW(data.Dataset):
 
         image = Image.open(impath).convert('RGB')
         label = Image.open(gtpath) if self.label else None 
-        # trans_list = [transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
-        trans_list = [transforms.ToTensor(), transforms.Normalize(*getStat())]
+        trans_list = [transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
+        # trans_list = [transforms.ToTensor(), transforms.Normalize(*getStat())]
 
         img_trans = transforms.Compose(trans_list)
         # return (index,) + self.transform_data(image, label, index)

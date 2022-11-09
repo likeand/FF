@@ -45,7 +45,7 @@ class PanopticFPN(nn.Module):
                 self.lf = LayerFusion([256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
             else:
                 self.lf = LayerFusion([768, 256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
-        
+
 
     def get_classification(self, cuts):        
         predictions = []
@@ -255,7 +255,7 @@ class DinoFeaturizer(nn.Module):
             num_classes=0)
         for p in self.model.parameters():
             p.requires_grad = False
-        self.model.eval().cuda()
+        self.model.cuda()
         self.dropout = torch.nn.Dropout2d(p=.1)
 
         if arch == "vit_small":
@@ -278,7 +278,7 @@ class DinoFeaturizer(nn.Module):
             torch.nn.Conv2d(in_channels, self.dim, (1, 1)))
 
     def forward(self, img, n=1, return_class_feat=False):
-        self.model.eval()
+        # self.model.eval()
         with torch.no_grad():
             assert (img.shape[2] % self.patch_size == 0)
             assert (img.shape[3] % self.patch_size == 0)
