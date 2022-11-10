@@ -170,13 +170,14 @@ def get_metric_as_conv(centroids):
 ################################################################################
 
 def freeze_all(model):
-    for param in model.module.parameters():
+    # for param in model.module.parameters():
+    for param in model.parameters():
         param.requires_grad = False 
 
 
 def initialize_classifier(args):
     classifier = get_linear(args.in_dim, args.K_cluster)
-    classifier = nn.DataParallel(classifier)
+    # classifier = nn.DataParallel(classifier)
     classifier = classifier.cuda()
 
     return classifier

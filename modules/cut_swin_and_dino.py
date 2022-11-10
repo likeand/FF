@@ -43,6 +43,8 @@ class PanopticFPN(nn.Module):
         if "LF" in args.method:
             if "swin_only" in args.method:
                 self.lf = LayerFusion([256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
+            # elif "swin" in args.method:
+            #     self.lf = LayerFusion([])
             else:
                 self.lf = LayerFusion([768, 256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
 
@@ -58,6 +60,17 @@ class PanopticFPN(nn.Module):
             predictions.append(classifications)
             all_features.append(features)
         return predictions, all_features
+    
+    def get_dino(self, cuts):
+        
+        all_features = []
+        for cut in cuts:
+            image = F.interpolate(cut, (384, 384)).to(self.device)
+            with torch.no_grad():
+                feat = self.forward_dino(image) # (b, n, h, w) n = 1000
+            all_features.append(feat)
+        return all_features
+        
 
     def forward_swin(self, x, return_feats=False):
         # if return_feats:
@@ -112,8 +125,9 @@ class PanopticFPN(nn.Module):
         return image_feat
     
     def forward(self, img):
-        if self.args.method == '':
-            _, x = self.forward_swin(img)
+        if self.args.method == 'dino':
+            feat = self.forward_dino(img)
+            x = self.conv(feat)
             return x
         elif self.args.method == 'cam':
             low_feature = self.forward_dino(img)
@@ -131,7 +145,6 @@ class PanopticFPN(nn.Module):
             feats = self.forward_swin(img)
             fusion = self.lf(feats[:-1])
             return fusion 
-
         elif self.args.method == 'swin_dino_LFaff':
             feats = self.forward_swin(img, return_feats=True) # img (b, 3, 384, 384) feats[ (b, 256, 48, 48), (b, 512, 24, 24), (b, 1024, 12, 12), (b, 1024, 12, 12), (b, 1024, 12, 12)] -2, -1 same.
             dinofeat = self.forward_dino(img) #(b, 768, 160, 160)
@@ -139,7 +152,6 @@ class PanopticFPN(nn.Module):
             fusion = self.lf(feats)
             # return dinofeat
             return F.interpolate(fusion, self.args.tar_res, mode='bilinear')
-
             
         elif self.args.method == 'aff_nodino':
             low_feature = self.forward_dino(img)
@@ -154,7 +166,7 @@ class PanopticFPN(nn.Module):
         elif self.args.method == 'aff_dino':
             low_feature = self.forward_dino(img)
             feats = self.forward_swin(img, True)
-            # classification, high_feature = self.forward_classification(img)
+            classification, high_feature = self.forward_classification(img)
             high_feature = F.interpolate(high_feature, low_feature.shape[-2:])
             low_feature = self.conv(low_feature)
             mask = self.mscam(high_feature + low_feature)
@@ -170,7 +182,16 @@ class PanopticFPN(nn.Module):
                 all_feature.append(feats)
             outs = make_one_from_crop(*all_feature, out_shape=self.args.tar_res)
             return outs 
-
+        elif self.args.method == 'dino_multiscale':
+            assert img.shape[-1] == 2048, "size not right"
+            all_cuts = make_crop(img)
+            all_feats = []
+            for cuts in all_cuts:
+                feats = self.get_dino(cuts)
+                all_feats.append(feats)
+            outs = make_one_from_crop(*all_feats, out_shape=self.args.tar_res)
+            return outs 
+        
         elif self.args.method == 'cam_multiscale':
             assert img.shape[-1] == 2048, "size not right"
             all_cuts = make_crop(img)

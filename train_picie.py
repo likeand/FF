@@ -47,7 +47,7 @@ def parse_arguments():
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    parser.add_argument('--method', type=str, default='swin_dino_LFaff')
+    parser.add_argument('--method', type=str, default='dino_multiscale')
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     parser.add_argument('--batch_size_train', type=int, default=2)
     parser.add_argument('--batch_size_test', type=int, default=4)
@@ -58,7 +58,7 @@ def parse_arguments():
     parser.add_argument('--num_init_batches', type=int, default=20)
     parser.add_argument('--num_batches', type=int, default=1)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
-    parser.add_argument('--in_dim', type=int, default=768)
+    parser.add_argument('--in_dim', type=int, default=1024)
     parser.add_argument('--X', type=int, default=80)
 
     # Loss. 
@@ -262,8 +262,10 @@ def main(args, logger):
             # Setup nonparametric classifier.
             classifier1 = initialize_classifier(args)
             classifier2 = initialize_classifier(args)
-            classifier1.module.weight.data = centroids1.unsqueeze(-1).unsqueeze(-1)
-            classifier2.module.weight.data = centroids2.unsqueeze(-1).unsqueeze(-1)
+            # classifier1.module.weight.data = centroids1.unsqueeze(-1).unsqueeze(-1)
+            # classifier2.module.weight.data = centroids2.unsqueeze(-1).unsqueeze(-1)
+            classifier1.weight.data = centroids1.unsqueeze(-1).unsqueeze(-1)
+            classifier2.weight.data = centroids2.unsqueeze(-1).unsqueeze(-1)
             freeze_all(classifier1)
             freeze_all(classifier2)
 

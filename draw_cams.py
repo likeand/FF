@@ -48,7 +48,7 @@ def parse_arguments():
     parser.add_argument('--res', type=int, default=RES, help='Input size.')
     # parser.add_argument('--res1', type=int, default=RES, help='Input size scale from.')
     # parser.add_argument('--res2', type=int, default=RES, help='Input size scale to.')
-    parser.add_argument('--tar_res', type=int, default=80, help='Output Feature size.')
+    parser.add_argument('--tar_res', type=int, default=40, help='Output Feature size.')
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
