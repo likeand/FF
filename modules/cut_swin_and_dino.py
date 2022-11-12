@@ -7,7 +7,7 @@ from .dino import vision_transformer as vit
 from .swin_transformer_v2 import SwinTransformerV2
 from einops import rearrange
 import matplotlib.pyplot as plt 
-from module_utils import LayerFusion, make_crop, make_one_from_crop, MSCAM, LayerFusion
+from module_utils import LayerFusion, make_crop, make_one_from_crop, MSCAM, LayerFusion, make_one_from_crop_with_weights
 
 
 class PanopticFPN(nn.Module):
@@ -47,7 +47,8 @@ class PanopticFPN(nn.Module):
             #     self.lf = LayerFusion([])
             else:
                 self.lf = LayerFusion([768, 256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
-
+        if args.method == 'dino_multiscale_ww':
+            self.patch_weights = nn.Conv2d(768, 1, 1)
 
     def get_classification(self, cuts):        
         predictions = []
@@ -181,17 +182,23 @@ class PanopticFPN(nn.Module):
                 preds, feats = self.get_classification(cuts)
                 all_feature.append(feats)
             outs = make_one_from_crop(*all_feature, out_shape=self.args.tar_res)
+            outs = self.conv(outs)
             return outs 
         elif self.args.method == 'dino_multiscale':
             assert img.shape[-1] == 2048, "size not right"
-            all_cuts = make_crop(img)
-            all_feats = []
-            for cuts in all_cuts:
-                feats = self.get_dino(cuts)
-                all_feats.append(feats)
-            outs = make_one_from_crop(*all_feats, out_shape=self.args.tar_res)
+            all_cuts = make_crop(img, self.args.res)
+            feats = self.forward_dino(cuts)
+            outs = make_one_from_crop(feats, out_shape=self.args.tar_res)
+            outs = self.conv(outs)
             return outs 
-        
+        elif self.args.method == 'dino_multiscale_ww':
+            assert img.shape[-1] == 2048, "size not right"
+            all_cuts = make_crop(img, self.args.res)
+            feats = self.forward_dino(cuts)
+            weights = self.patch_weights(feats)
+            outs = make_one_from_crop_with_weights(feats, weights, out_shape=self.args.tar_res)
+            outs = self.conv(outs)
+            return outs 
         elif self.args.method == 'cam_multiscale':
             assert img.shape[-1] == 2048, "size not right"
             all_cuts = make_crop(img)

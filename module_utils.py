@@ -83,7 +83,7 @@ class LayerFusion(nn.Module):
                 
         return fusion_feats 
         
-def make_crop(img):
+def make_crop(img, tar_res=320):
     '''
         @params img: Tensor of shape (b, 3, 1024, 2048)
         @returns img: Tensors of crop.
@@ -99,21 +99,22 @@ def make_crop(img):
 
     cuts1 = []
     for i in range(cut_num1):
-        cuts1.append(img[:, :, cut_range1[0]:cut_range1[1], i*cut_stride1 : i*cut_stride1 + cut_range1[1] - cut_range1[0]])
+        cuts1.append(F.interpolate(img[:, :, cut_range1[0]:cut_range1[1], i*cut_stride1 : i*cut_stride1 + cut_range1[1] - cut_range1[0]], tar_res) )
 
     cuts2 = []
     for i in range(cut_num2):
-        cuts2.append(img[:, :, cut_range2[0]:cut_range2[1], i*cut_stride2 : i*cut_stride2 + cut_range2[1] - cut_range2[0]])
+        cuts2.append(F.interpolate(img[:, :, cut_range2[0]:cut_range2[1], i*cut_stride2 : i*cut_stride2 + cut_range2[1] - cut_range2[0]], tar_res) )
     
-    cuts3 = [img[:,:,cut_range3[0]:cut_range3[1]]]
+    cuts3 = [F.interpolate(img[:,:,cut_range3[0]:cut_range3[1]], tar_res)]
     
     # print(f'{cuts3[0].shape = }')
-    return cuts1, cuts2, cuts3
+    return torch.stack(cuts1+cuts2+cuts3, dim=0)
+    # return cuts1, cuts2, cuts3
 
 def get_int_tuple(x, y):
     return (int(x), int(y))
 
-def make_one_from_crop(cuts1, cuts2, cuts3, out_shape=384):
+def make_one_from_crop(cuts, out_shape=384):
 
     cut_num1 = 4
     cut_num2 = 6
@@ -131,8 +132,8 @@ def make_one_from_crop(cuts1, cuts2, cuts3, out_shape=384):
 
     w_scale = out_shape / origin_size[1]
     h_scale = out_shape / origin_size[0]  
-    B, C, H, W = cuts3[0].shape
-    out = torch.zeros((B, C, out_shape, out_shape), device=cuts3[0].device)
+    B, C, H, W = cuts.shape
+    out = torch.zeros((1, C, out_shape, out_shape), device=cuts.device)
     weight = torch.zeros_like(out)
 
     resized_h_range = get_int_tuple(cut_range1[0] * h_scale, cut_range1[1] * h_scale)
@@ -141,7 +142,7 @@ def make_one_from_crop(cuts1, cuts2, cuts3, out_shape=384):
     resized_w_stride2 = int (out_shape - (cut_range2[1] - cut_range2[0]) * w_scale) // (cut_num2 - 1)
     for i in range(cut_num1):
         # cuts1.append(img[:, :, cut_range1[0]:cut_range1[1], i*cut_stride1 : i*cut_stride1 + cut_range1[1] - cut_range1[0]])
-        resized_cut = F.interpolate(cuts1[i], get_int_tuple(cut1_size * h_scale, cut1_size * w_scale), mode='bilinear')
+        resized_cut = F.interpolate(cuts[i], get_int_tuple(cut1_size * h_scale, cut1_size * w_scale), mode='bilinear')
         b,c,h,w = resized_cut.shape
         patch_weight = torch.ones_like(resized_cut)
         out[:,:, resized_h_range[0]:resized_h_range[0]+h, i * resized_w_stride1: i * resized_w_stride1 + w] += resized_cut
@@ -152,7 +153,7 @@ def make_one_from_crop(cuts1, cuts2, cuts3, out_shape=384):
     
     for i in range(cut_num2):
         # cuts1.append(img[:, :, cut_range1[0]:cut_range1[1], i*cut_stride1 : i*cut_stride1 + cut_range1[1] - cut_range1[0]])
-        resized_cut = F.interpolate(cuts2[i], get_int_tuple(cut2_size * h_scale, cut2_size * w_scale), mode='bilinear')
+        resized_cut = F.interpolate(cuts[i + cut_num1], get_int_tuple(cut2_size * h_scale, cut2_size * w_scale), mode='bilinear')
         b,c,h,w = resized_cut.shape
         patch_weight = torch.ones_like(resized_cut)
         out[:,:, resized_h_range[0]:resized_h_range[0] + h, i * resized_w_stride2: i * resized_w_stride2 + w] += resized_cut
@@ -161,7 +162,7 @@ def make_one_from_crop(cuts1, cuts2, cuts3, out_shape=384):
     resized_h_range = get_int_tuple(cut_range3[0] * h_scale, cut_range3[1] * h_scale)
     cut3_size = (cut_range3[1]-cut_range3[0])
     for i in range(1):
-        resized_cut = F.interpolate(cuts3[i], get_int_tuple( cut3_size * h_scale, out_shape), mode='bilinear')
+        resized_cut = F.interpolate(cuts[i + cut_num1 + cut_num2], get_int_tuple( cut3_size * h_scale, out_shape), mode='bilinear')
         patch_weight = torch.ones_like(resized_cut)
         out[:,:, resized_h_range[0]:resized_h_range[1], :] += resized_cut
         weight[:,:, resized_h_range[0]:resized_h_range[1], :] += patch_weight
@@ -170,6 +171,67 @@ def make_one_from_crop(cuts1, cuts2, cuts3, out_shape=384):
     out = out / weight 
     return out
 
+def make_one_from_crop_with_weights(cuts, weights, out_shape=384):
+    
+    cut_num1 = 4
+    cut_num2 = 6
+    cut_range1 = (0, 800)
+    cut_range2 = (100, 600)
+    # cut_range3 = (0, 800)
+    cut_range3 = (0, 1024)
+    cut_stride1 = (2048 - (cut_range1[1] - cut_range1[0])) // (cut_num1 - 1)
+    cut_stride2 = (2048 - (cut_range2[1] - cut_range2[0])) // (cut_num2 - 1)
+
+    cut1_size = cut_range1[1] - cut_range1[0]
+    cut2_size = cut_range2[1] - cut_range2[0]
+    origin_size = (1024, 2048)
+    target_size = out_shape
+
+    w_scale = out_shape / origin_size[1]
+    h_scale = out_shape / origin_size[0]  
+    B, C, H, W = cuts.shape
+    out = torch.zeros((B, C, out_shape, out_shape), device=cuts.device)
+    weight = torch.zeros_like(out)
+
+    resized_h_range = get_int_tuple(cut_range1[0] * h_scale, cut_range1[1] * h_scale)
+    # resized_w_stride = int(cut_stride1 * w_scale)
+    resized_w_stride1 = int (out_shape - (cut_range1[1] - cut_range1[0]) * w_scale) // (cut_num1 - 1)
+    resized_w_stride2 = int (out_shape - (cut_range2[1] - cut_range2[0]) * w_scale) // (cut_num2 - 1)
+    for i in range(cut_num1):
+        # cuts1.append(img[:, :, cut_range1[0]:cut_range1[1], i*cut_stride1 : i*cut_stride1 + cut_range1[1] - cut_range1[0]])
+        resized_cut = F.interpolate(cuts[i], get_int_tuple(cut1_size * h_scale, cut1_size * w_scale), mode='bilinear')
+        patch_weight = F.interpolate(weights[i], get_int_tuple(cut1_size * h_scale, cut1_size * w_scale), mode='bilinear')
+        # torch.ones(1).expand_as(resized_cut)
+        b,c,h,w = resized_cut.shape
+        # patch_weight = torch.ones_like(resized_cut)
+        out[:,:, resized_h_range[0]:resized_h_range[0]+h, i * resized_w_stride1: i * resized_w_stride1 + w] += resized_cut
+        weight[:,:, resized_h_range[0]:resized_h_range[0]+h, i * resized_w_stride1: i * resized_w_stride1 + w] += patch_weight
+
+    resized_h_range = get_int_tuple(cut_range2[0] * h_scale, cut_range2[1] * h_scale)
+    # resized_w_stride = int(cut_stride2 * w_scale)
+    
+    for i in range(cut_num2):
+        # cuts1.append(img[:, :, cut_range1[0]:cut_range1[1], i*cut_stride1 : i*cut_stride1 + cut_range1[1] - cut_range1[0]])
+        resized_cut = F.interpolate(cuts[i + cut_num1], get_int_tuple(cut2_size * h_scale, cut2_size * w_scale), mode='bilinear')
+        patch_weight = F.interpolate(weights[i + cut_num1], get_int_tuple(cut2_size * h_scale, cut2_size * w_scale), mode='bilinear')
+        
+        b,c,h,w = resized_cut.shape
+        # patch_weight = torch.ones_like(resized_cut)
+        out[:,:, resized_h_range[0]:resized_h_range[0] + h, i * resized_w_stride2: i * resized_w_stride2 + w] += resized_cut
+        weight[:,:, resized_h_range[0]:resized_h_range[0] + h, i * resized_w_stride2: i * resized_w_stride2 + w] += patch_weight
+    
+    resized_h_range = get_int_tuple(cut_range3[0] * h_scale, cut_range3[1] * h_scale)
+    cut3_size = (cut_range3[1]-cut_range3[0])
+    for i in range(1):
+        resized_cut = F.interpolate(cuts[i + cut_num1 + cut_num2], get_int_tuple( cut3_size * h_scale, out_shape), mode='bilinear')
+        # patch_weight = torch.ones_like(resized_cut)
+        patch_weight = F.interpolate(weights[i + cut_num1 + cut_num2], get_int_tuple( cut3_size * h_scale, out_shape), mode='bilinear') 
+        out[:,:, resized_h_range[0]:resized_h_range[1], :] += resized_cut
+        weight[:,:, resized_h_range[0]:resized_h_range[1], :] += patch_weight
+    
+    weight[weight == 0] = 1
+    out = out / weight 
+    return out
 
 
 if __name__ == "__main__":
