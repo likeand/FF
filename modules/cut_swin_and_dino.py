@@ -186,14 +186,14 @@ class PanopticFPN(nn.Module):
             return outs 
         elif self.args.method == 'dino_multiscale':
             assert img.shape[-1] == 2048, "size not right"
-            all_cuts = make_crop(img, self.args.res)
+            cuts = make_crop(img, self.args.res)
             feats = self.forward_dino(cuts)
             outs = make_one_from_crop(feats, out_shape=self.args.tar_res)
             outs = self.conv(outs)
             return outs 
         elif self.args.method == 'dino_multiscale_ww':
             assert img.shape[-1] == 2048, "size not right"
-            all_cuts = make_crop(img, self.args.res)
+            cuts = make_crop(img, self.args.res)
             feats = self.forward_dino(cuts)
             weights = self.patch_weights(feats)
             outs = make_one_from_crop_with_weights(feats, weights, out_shape=self.args.tar_res)

@@ -108,7 +108,7 @@ def make_crop(img, tar_res=320):
     cuts3 = [F.interpolate(img[:,:,cut_range3[0]:cut_range3[1]], tar_res)]
     
     # print(f'{cuts3[0].shape = }')
-    return torch.stack(cuts1+cuts2+cuts3, dim=0)
+    return torch.cat(cuts1+cuts2+cuts3, dim=0)
     # return cuts1, cuts2, cuts3
 
 def get_int_tuple(x, y):
