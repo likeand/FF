@@ -5,4 +5,6 @@
 /draw_image_result
 /__pycache__
 /cams
+train.aip
+train_picie.py
 

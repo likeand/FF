@@ -16,10 +16,10 @@ from data.cityscapes_train_dataset import TrainCityscapesRAW
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_root', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/cityscapes")
-    parser.add_argument('--save_root', type=str, default="/home/zhulifu/unsup_seg/train_out")
-    parser.add_argument('--save_model_path', type=str, default="/home/zhulifu/unsup_seg/train_out")
-    parser.add_argument('--model_dir', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/models")
+    parser.add_argument('--data_root', type=str, default="../cityscapes")
+    parser.add_argument('--save_root', type=str, default="../train_out")
+    parser.add_argument('--save_model_path', type=str, default="../train_out")
+    parser.add_argument('--model_dir', type=str, default="../models")
     
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--restart_path', type=str)
@@ -47,7 +47,7 @@ def parse_arguments():
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    parser.add_argument('--method', type=str, default='dino_multiscale')
+    parser.add_argument('--method', type=str, default='dino_multiscale_ww')
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     parser.add_argument('--batch_size_train', type=int, default=2)
     parser.add_argument('--batch_size_test', type=int, default=4)
