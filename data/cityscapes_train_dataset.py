@@ -9,7 +9,14 @@ import numpy as np
 from PIL import Image, ImageFilter
 from data.custom_transforms import *
 
+# We remove ignore classes. 
+FINE_DICT = {0:-1, 1:-1, 2:-1, 3:-1, 4:-1, 5:-1, 6:-1, 7:0, 8:1, 9:2, 10:3, 11:4, 12:5, 13:6,
+             14:7, 15:8, 16:9, 17:10, 18:11, 19:12, 20:13, 21:14, 22:15, 23:16, 24:17, 25:18, 26:19,
+             27:20, 28:21, 29:22, 30:23, 31:24, 32:25, 33:26, -1:-1}
 
+COARSE_DICT = {0:-1, 1:-1, 2:-1, 3:-1, 4:-1, 5:-1, 6:-1, 7:0, 8:0, 9:0, 10:0, 11:1, 12:1, 13:1,
+               14:1, 15:1, 16:1, 17:2, 18:2, 19:2, 20:2, 21:3, 22:3, 23:4, 24:5, 25:5, 26:6,
+               27:6, 28:6, 29:6, 30:6, 31:6, 32:6, 33:6, -1:-1}
 class TrainCityscapes(data.Dataset):
     def __init__(self, root, labeldir, mode, split='train', res1=320, res2=640, inv_list=[], eqv_list=[], scale=(0.5, 1), tar_res=40):
         self.root  = root 
@@ -27,7 +34,10 @@ class TrainCityscapes(data.Dataset):
         self.labeldir = labeldir
 
         self.imdb = self.load_imdb()
+        self.lbdb = self.load_lbdb()
         self.reshuffle() 
+        LABEL_DICT = FINE_DICT
+        self.cityscape_labelmap = np.vectorize(lambda x: LABEL_DICT[x])
 
     def load_imdb(self):
         imdb = []
@@ -38,7 +48,18 @@ class TrainCityscapes(data.Dataset):
                     imdb.append(image_path)
 
         return imdb
+    
+    def load_lbdb(self):
+        lbdb = []
+        for folder in ['test', 'train', 'val']:
+            for city in os.listdir(os.path.join(self.root, 'leftImg8bit', folder)):
+                for fname in os.listdir(os.path.join(self.root, 'leftImg8bit', folder, city)):
+                    label_name = fname.split('leftImg8bit.png')[0] + 'gtFine_labelIds.png'
+                    label_path = os.path.join(self.root, 'gtFine', folder, city, label_name)
+                    lbdb.append(label_path)
 
+        return lbdb
+    
     def __getitem__(self, index):
         index = self.shuffled_indices[index]
         ipath = self.imdb[index]
@@ -182,7 +203,19 @@ class TrainCityscapes(data.Dataset):
             label1 = F.interpolate(label1.float(), (size, size), mode='nearest').long()[0,0]
 
             return (label1, )
-
+        
+        elif self.mode == 'linear_train':
+            path =  self.lbdb[index]
+            label = Image.open(path).convert('L')
+            size = self.tar_res
+            label = label.resize((size, size), resample=Image.Resampling.NEAREST)
+            # transforms.ToTensor()
+            label = np.asarray(label)
+            label = self.cityscape_labelmap(label)  
+            label = torch.LongTensor(label)
+            label[label < 0] = 27
+            return (label, label)
+        
         return (None, )
 
 
@@ -211,6 +244,7 @@ class TrainCityscapesRAW(data.Dataset):
         self.labeldir = labeldir
 
         self.imdb = self.load_imdb()
+        self.lbdb = self.load_lbdb()
         self.reshuffle() 
 
     def load_imdb(self):
@@ -222,6 +256,17 @@ class TrainCityscapesRAW(data.Dataset):
                     imdb.append(image_path)
 
         return imdb
+    
+    def load_lbdb(self):
+        lbdb = []
+        for folder in ['test', 'train', 'val']:
+            for city in os.listdir(os.path.join(self.root, 'leftImg8bit', folder)):
+                for fname in os.listdir(os.path.join(self.root, 'leftImg8bit', folder, city)):
+                    label_name = fname.split('leftImg8bit.png')[0] + 'gtFine_color.png'
+                    label_path = os.path.join(self.root, 'gtFine', folder, city, label_name)
+                    lbdb.append(label_path)
+
+        return lbdb
 
     def __getitem__(self, index):
         index = self.shuffled_indices[index]
@@ -366,6 +411,15 @@ class TrainCityscapesRAW(data.Dataset):
             label1 = F.interpolate(label1.float(), (size, size), mode='nearest').long()[0,0]
 
             return (label1, )
+
+        elif 'linear_train' in self.mode:
+            path =  self.lbdb[index]
+            label = Image.open(path).convert('L')
+            size = self.tar_res
+            label = label.resize((size, size))
+            # transforms.ToTensor()
+            label = torch.LongTensor(np.asarray(label))
+            return (label, label)
 
         return (None, )
 

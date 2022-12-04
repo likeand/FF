@@ -2,7 +2,7 @@ import os
 import numpy as np 
 import torch 
 import torch.nn as nn 
-from modules import fpn, myfpn, myfpn_multi, stego, swin, cut_swin, dino_full, cut_swin_and_dino
+from modules import fpn, stego, picie, cut_swin_and_dino
 # from sklearn.utils.linear_assignment_ import linear_assignment
 from scipy.optimize import linear_sum_assignment
 from modules import fpn 
@@ -18,6 +18,10 @@ def get_model(args):
         model = cut_swin_and_dino.PanopticFPN(args)
     elif args.arch == 'swinv2':
         model = cut_swin_and_dino.PanopticFPN(args)
+    elif args.arch == 'stego':
+        model = stego.PanopticFPN(args)
+    elif args.arch == 'picie':
+        model = picie.PanopticFPN(args)
     # model = cut_swin_and_dino.PanopticFPN(args)
     else:
         raise NotImplementedError("arch " + args.arch + " not implemented.")
@@ -25,10 +29,9 @@ def get_model(args):
     return model
 
 def get_model_and_optimizer(args, logger):
-    # Init model 
-    # model = fpn.PanopticFPN(args)
-    # model = nn.DataParallel(model)
-    # model = model.cuda()
+    if args.arch == 'stego':
+        return get_model(args), None, None 
+    
     model = get_model(args)
     
     # Init classifier (for eval only.)
@@ -37,11 +40,11 @@ def get_model_and_optimizer(args, logger):
     # Init optimizer 
     if args.optim_type == 'SGD':
         logger.info('SGD optimizer is used.')
-        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, \
+        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, list(model.parameters()) + list(classifier.parameters())), lr=args.lr, \
                                     momentum=args.momentum, weight_decay=args.weight_decay)
     elif args.optim_type == 'Adam':
         logger.info('Adam optimizer is used.')
-        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr)
+        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, list(model.parameters()) + list(classifier.parameters())), lr=args.lr)
 
     # optional restart. 
     args.start_epoch  = 0 
@@ -203,7 +206,8 @@ def evaluate(args, logger, dataloader, classifier, model):
     histogram = np.zeros((args.K_test, args.K_test))
 
     model.eval()
-    classifier.eval()
+    if not args.arch == 'stego':
+        classifier.eval()
     with torch.no_grad():
         for i, (_, image, label) in enumerate(dataloader):
             image = image.cuda(non_blocking=True)
@@ -217,8 +221,10 @@ def evaluate(args, logger, dataloader, classifier, model):
                 logger.info('Batch input size   : {}'.format(list(image.shape)))
                 logger.info('Batch label size   : {}'.format(list(label.shape)))
                 logger.info('Batch feature size : {}\n'.format(list(feats.shape)))
-
-            probs = classifier(feats)
+            if args.arch == 'stego':
+                probs = feats 
+            else:
+                probs = classifier(feats)
             probs = F.interpolate(probs, label.shape[-2:], mode='bilinear', align_corners=False)
             preds = probs.topk(1, dim=1)[1].view(B, -1).cpu().numpy()
             label = label.view(B, -1).cpu().numpy()
@@ -239,6 +245,7 @@ def evaluate(args, logger, dataloader, classifier, model):
     histogram = torch.Tensor(histogram)
     prefix = f'gen_files/{args.arch}_{args.res}_{args.method}'
     torch.save(histogram, prefix + 'hist.pth')
+    torch.save(assignments[1], prefix + 'assignments.pth')
     tp = torch.diag(histogram)
     fp = torch.sum(histogram, dim=0) - tp
     fn = torch.sum(histogram, dim=1) - tp

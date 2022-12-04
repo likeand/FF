@@ -346,7 +346,7 @@ def test_metrics_on_val(model, centroids, dataloader, prefix='test_on_val'):
         new_col = torch.zeros(n_classes + 1, 1, device=histogram.device)
         histogram = torch.cat([histogram, new_col], axis=1)
     
-    torch.save(histogram, prefix + 'hist.pth')
+    torch.save(histogram,   + 'hist.pth')
     torch.save(assignments, prefix + 'asgn.pth')
     tp = torch.diag(histogram)
     fp = torch.sum(histogram, dim=0) - tp

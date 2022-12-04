@@ -3,25 +3,21 @@ import torch.nn as nn
 import torch.nn.functional as F 
 from . import backbone
 
-
 class PanopticFPN(nn.Module):
     def __init__(self, args):
         super(PanopticFPN, self).__init__()
-        self.backbone = backbone.__dict__[args.arch](pretrained=args.pretrain)
+        self.backbone = backbone.resnet18(pretrained=args.pretrain)
         self.decoder  = FPNDecoder(args)
         
-        
-
     def forward(self, x):
         feats = self.backbone(x)
         outs  = self.decoder(feats) 
-
         return outs 
 
 class FPNDecoder(nn.Module):
     def __init__(self, args):
         super(FPNDecoder, self).__init__()
-        if args.arch == 'resnet18':
+        if args.arch == 'picie':
             mfactor = 1
             out_dim = 128 
         else:

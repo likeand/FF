@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F 
 from . import backbone
-from module_utils import make_crop, make_one_from_crop, MSCAM, LayerFusion
+from module_utils import make_crop, make_one_from_crop, MSCAM, LayerFusion, make_one_from_crop_with_weights
 from einops import rearrange
 
 class PanopticFPN(nn.Module):
@@ -14,14 +14,16 @@ class PanopticFPN(nn.Module):
         else:
             out_dim = 256
         self.backbone = backbone.__dict__[args.arch](pretrained=args.pretrain)
-        self.fc = self.backbone.fc
+        # self.fc = self.backbone.fc
         self.decoder  = FPNDecoder(args)
         
-        self.conv = nn.Conv2d(self.backbone.fc.weight.shape[-1], args.in_dim, 1)
+        # self.conv = nn.Conv2d(self.backbone.fc.weight.shape[-1], args.in_dim, 1)
         self.args = args
         
         self.ms_cam = MSCAM(args.in_dim, args.in_dim // 2)
         self.lf = LayerFusion([256, 512, 1024, 2048], args.in_dim, args.method.split('LF')[-1])
+        self.ms_conv = nn.Conv2d(args.in_dim, args.in_dim, 1)
+        self.patch_weights = nn.Conv2d(args.in_dim, 1, 1)
 
     def forward(self, x):
         if self.args.method == 'cam':
@@ -50,17 +52,27 @@ class PanopticFPN(nn.Module):
             feats = self.backbone(x)
             feats = [feats[f'res{i}'] for i in range(2, 6)]
             return self.lf(feats)
-                 
+            
         elif self.args.method == 'multiscale':
             assert x.shape[-1] == 2048, f"size not right, requires (1024,2048), receives {x.shape[-2:]}"
-            all_cuts = make_crop(x)
-            all_feature = []
-            for cuts in all_cuts:
-                feature = self.get_feature(cuts)
-                all_feature.append(feature)
-            outs = make_one_from_crop(*all_feature, out_shape=self.args.tar_res)
-            return outs 
+            all_cuts = make_crop(x, self.args.res)
+            # all_feature = []
+            # for cuts in all_cuts:
+            #     feature = self.get_feature(cuts)
+            #     all_feature.append(feature)
+            all_feats = self.backbone(all_cuts)
+            all_feature = self.decoder(all_feats)
+            outs = make_one_from_crop(all_feature, out_shape=self.args.tar_res)
+            return self.ms_conv(outs) 
 
+        elif self.args.method == 'multiscale_ww':
+            assert x.shape[-1] == 2048, f"size not right, requires (1024,2048), receives {x.shape[-2:]}"
+            all_cuts = make_crop(x, self.args.res)
+            all_feature = self.backbone(all_cuts) 
+            all_feature = self.decoder(all_feature)
+            weights = self.patch_weights(all_feature)
+            outs = make_one_from_crop_with_weights(all_feature, weights, out_shape=self.args.tar_res)
+            return self.ms_conv(outs) 
         elif self.args.method == 'cam_multiscale':
             assert x.shape[-1] == 2048, "size not right"
             all_cuts = make_crop(x)
@@ -84,7 +96,7 @@ class PanopticFPN(nn.Module):
             mask = F.interpolate(mask.float(), low_feats.shape[-2:])
             return mask * high_feats + (1 - mask) * low_feats
 
-        elif self.args.method == '':
+        elif self.args.method == '' or self.args.method.startswith('layer'):
             feats = self.backbone(x)
             outs  = self.decoder(feats) 
             return outs 
@@ -128,6 +140,7 @@ class PanopticFPN(nn.Module):
 class FPNDecoder(nn.Module):
     def __init__(self, args):
         super(FPNDecoder, self).__init__()
+        self.args = args 
         if args.arch == 'resnet18':
             self.mfactor = 1
             self.out_dim = args.in_dim 
@@ -146,12 +159,18 @@ class FPNDecoder(nn.Module):
         
         
     def forward(self, x):
+        if self.args.method == 'layer3':
+            return F.interpolate(self.layer3(x['res3']), self.tar_res, mode='bilinear')
+        elif self.args.method == 'layer2':
+            return F.interpolate(self.layer4(x['res2']), self.tar_res, mode='bilinear')
+        elif self.args.method == 'layer4':
+            return F.interpolate(self.layer2(x['res4']), self.tar_res, mode='bilinear')
         o1 = self.layer1(x['res5'])
         o2 = self.upsample_add(o1, self.layer2(x['res4']))
         o3 = self.upsample_add(o2, self.layer3(x['res3']))
         o4 = self.upsample_add(o3, self.layer4(x['res2']))
-        F.interpolate(o4, self.tar_res, mode='bilinear')
-        return o4
+        return F.interpolate(o4, self.tar_res, mode='bilinear')
+        # return o4
 
     def upsample_add(self, x, y):
         _, _, H, W = y.size()

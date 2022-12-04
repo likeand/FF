@@ -9,67 +9,166 @@ class PanopticFPN(nn.Module):
     def __init__(self, args):
         super(PanopticFPN, self).__init__()
 
-        arch = "vit_base"
+        RESUME = f'/home/zhulifu/unsup_seg/STEGO-master/saved_models/cityscapes_vit_base_1.ckpt'
+        stego_dict = torch.load(RESUME)
+        print(f'loaded state dict from {RESUME}')
+        
         self.patch_size = 8
-        self.backbone = vit.__dict__[arch](
-            patch_size=8,
-            num_classes=0
-        )
+        self.backbone = DinoFeaturizer(100, stego_dict['hyper_parameters']['cfg'])
+        nd = {}
+        for key in stego_dict['state_dict'].keys():
+            if key.startswith('net.'):
+                nd[key[4:]] = stego_dict['state_dict'][key]
+        self.backbone.load_state_dict(nd)
         self.args = args
-        if args.arch_local_save is not None:
-            RESUME = f'{args.model_dir}/dino_vitbase8_pretrain.pth'
-            self.backbone.load_state_dict(torch.load(RESUME))
-            print(f'loaded state dict from {RESUME}')
-        self.decoder  = FPNDecoder(args)
+
+        self.cluster = ClusterLookup(100, 27)
+        self.cluster.load_state_dict({'clusters':stego_dict['state_dict']['cluster_probe.clusters']})
 
     def forward(self, img, n=1):
+        feats, code = self.backbone(img)
+        cluster_loss, cluster_preds = self.cluster(code, None)
+        # cluster_preds = cluster_preds.argmax(1)
+        return cluster_preds
+
+
+class ClusterLookup(nn.Module):
+
+    def __init__(self, dim: int, n_classes: int):
+        super(ClusterLookup, self).__init__()
+        self.n_classes = n_classes
+        self.dim = dim
+        self.clusters = torch.nn.Parameter(torch.randn(n_classes, dim))
+
+    def reset_parameters(self):
         with torch.no_grad():
-            feat, attn, qkv = self.backbone.get_intermediate_feat(img, n=n)
+            self.clusters.copy_(torch.randn(self.n_classes, self.dim))
+
+    def forward(self, x, alpha, log_probs=False):
+        normed_clusters = F.normalize(self.clusters, dim=1)
+        normed_features = F.normalize(x, dim=1)
+        inner_products = torch.einsum("bchw,nc->bnhw", normed_features, normed_clusters)
+
+        if alpha is None:
+            cluster_probs = F.one_hot(torch.argmax(inner_products, dim=1), self.clusters.shape[0]) \
+                .permute(0, 3, 1, 2).to(torch.float32)
+        else:
+            cluster_probs = nn.functional.softmax(inner_products * alpha, dim=1)
+
+        cluster_loss = -(cluster_probs * inner_products).sum(1).mean()
+        if log_probs:
+            return nn.functional.log_softmax(inner_products * alpha, dim=1)
+        else:
+            return cluster_loss, cluster_probs
+
+
+class DinoFeaturizer(nn.Module):
+
+    def __init__(self, dim, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.dim = dim
+        patch_size = self.cfg.dino_patch_size
+        self.patch_size = patch_size
+        self.feat_type = self.cfg.dino_feat_type
+        arch = self.cfg.model_type
+        self.model = vit.__dict__[arch](
+            patch_size=patch_size,
+            num_classes=0)
+        for p in self.model.parameters():
+            p.requires_grad = False
+        self.model.eval().cuda()
+        self.dropout = torch.nn.Dropout2d(p=.1)
+
+        if arch == "vit_small" and patch_size == 16:
+            url = "dino_deitsmall16_pretrain/dino_deitsmall16_pretrain.pth"
+        elif arch == "vit_small" and patch_size == 8:
+            url = "dino_deitsmall8_300ep_pretrain/dino_deitsmall8_300ep_pretrain.pth"
+        elif arch == "vit_base" and patch_size == 16:
+            url = "dino_vitbase16_pretrain/dino_vitbase16_pretrain.pth"
+        elif arch == "vit_base" and patch_size == 8:
+            url = "dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth"
+        else:
+            raise ValueError("Unknown arch and patch size")
+
+        if cfg.pretrained_weights is not None:
+            state_dict = torch.load(cfg.pretrained_weights, map_location="cpu")
+            state_dict = state_dict["teacher"]
+            # remove `module.` prefix
+            state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+            # remove `backbone.` prefix induced by multicrop wrapper
+            state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
+
+            # state_dict = {k.replace("projection_head", "mlp"): v for k, v in state_dict.items()}
+            # state_dict = {k.replace("prototypes", "last_layer"): v for k, v in state_dict.items()}
+
+            msg = self.model.load_state_dict(state_dict, strict=False)
+            print('Pretrained weights found at {} and loaded with msg: {}'.format(cfg.pretrained_weights, msg))
+        else:
+            # local_save_path = f'/home/zhulifu/unsup_seg/STEGO-master/saved_models/dino_deitsmall8_300ep_pretrain.pth'
+            # if os.path.exists(local_save_path):
+            #     self.model.load_state_dict(torch.load(local_save_path))
+            #     print(f'loaded state dict from {cfg.arch_local_save}')
+            # else:
+            print("Since no pretrained weights have been provided, we load the reference pretrained DINO weights.")
+            state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
+            self.model.load_state_dict(state_dict, strict=True)
+
+        if arch == "vit_small":
+            self.n_feats = 384
+        else:
+            self.n_feats = 768
+        self.cluster1 = self.make_clusterer(self.n_feats)
+        self.proj_type = cfg.projection_type
+        if self.proj_type == "nonlinear":
+            self.cluster2 = self.make_nonlinear_clusterer(self.n_feats)
+
+    def make_clusterer(self, in_channels):
+        return torch.nn.Sequential(
+            torch.nn.Conv2d(in_channels, self.dim, (1, 1)))  # ,
+
+    def make_nonlinear_clusterer(self, in_channels):
+        return torch.nn.Sequential(
+            torch.nn.Conv2d(in_channels, in_channels, (1, 1)),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(in_channels, self.dim, (1, 1)))
+
+    def forward(self, img, n=1, return_class_feat=False):
+        self.model.eval()
+        with torch.no_grad():
+            assert (img.shape[2] % self.patch_size == 0)
+            assert (img.shape[3] % self.patch_size == 0)
+
+            # get selected layer activations
+            feat, attn, qkv = self.model.get_intermediate_feat(img, n=n)
             feat, attn, qkv = feat[0], attn[0], qkv[0]
 
             feat_h = img.shape[2] // self.patch_size
             feat_w = img.shape[3] // self.patch_size
 
-            image_feat = feat[:, 1:, :].reshape(feat.shape[0], feat_h, feat_w, -1).permute(0, 3, 1, 2)
+            if self.feat_type == "feat":
+                image_feat = feat[:, 1:, :].reshape(feat.shape[0], feat_h, feat_w, -1).permute(0, 3, 1, 2)
+            elif self.feat_type == "KK":
+                image_k = qkv[1, :, :, 1:, :].reshape(feat.shape[0], 6, feat_h, feat_w, -1)
+                B, H, I, J, D = image_k.shape
+                image_feat = image_k.permute(0, 1, 4, 2, 3).reshape(B, H * D, I, J)
+            else:
+                raise ValueError("Unknown feat type:{}".format(self.feat_type))
 
-        # outs  = self.decoder(image_feat) 
-        # return outs 
-        return image_feat
-    def forward_lbl(self, img):
-        res = self.args.res
-        if not img.shape[3] == res:
-            img = F.interpolate(img, (res, res))
-        return self.forward(img)
+            if return_class_feat:
+                return feat[:, :1, :].reshape(feat.shape[0], 1, 1, -1).permute(0, 3, 1, 2)
 
-class FPNDecoder(nn.Module):
-    def __init__(self, args):
-        super(FPNDecoder, self).__init__()
-        # self.conv = nn.Conv2d(768, args.in_dim, kernel_size=1, stride=1, padding=0)
-        # self.conv = DoubleConv(768, args.in_dim, 256)
+        if self.proj_type is not None:
+            code = self.cluster1(self.dropout(image_feat))
+            if self.proj_type == "nonlinear":
+                code += self.cluster2(self.dropout(image_feat))
+        else:
+            code = image_feat
 
-    def forward(self, x):
-        # x = feats[-1]
-        # return self.conv(x)
-        return x
+        if self.cfg.dropout:
+            return self.dropout(image_feat), code
+        else:
+            return image_feat, code
 
-
-class DoubleConv(nn.Module):
-    """(convolution => [BN] => ReLU) * 2"""
-
-    def __init__(self, in_channels, out_channels, mid_channels=None):
-        super().__init__()
-        if not mid_channels:
-            mid_channels = out_channels
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU()
-        )
-
-    def forward(self, x):
-        return self.double_conv(x)
 
 

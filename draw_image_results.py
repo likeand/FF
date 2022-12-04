@@ -5,11 +5,11 @@ import torch
 import torch.nn as nn 
 # from sklearn.utils.linear_assignment_ import linear_assignment
 from scipy.optimize import linear_sum_assignment
-from modules import fpn, myfpn, myfpn_multi, stego, swin, cut_swin, dino_full, cut_swin_and_dino
+from modules import fpn, stego, picie, cut_swin_and_dino
 import argparse
 from tqdm import tqdm 
 from data.cityscapes_eval_dataset import EvalCityscapesRAW
-
+from commons import get_model
 
 def parse_arguments():
 
@@ -99,18 +99,18 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def get_model(args):
-    if args.arch.startswith('resnet'):
-        model = fpn.PanopticFPN(args)
-    elif args.arch == 'dino':
-        model = stego.PanopticFPN(args)
-    elif args.arch == 'swinv2':
-        model = cut_swin_and_dino.PanopticFPN(args)
-    # model = cut_swin_and_dino.PanopticFPN(args)
-    else:
-        raise NotImplementedError(f"arch {args.arch} not implemented.")
-    model = model.cuda()
-    return model
+# def get_model(args):
+#     if args.arch.startswith('resnet'):
+#         model = fpn.PanopticFPN(args)
+#     elif args.arch == 'dino':
+#         model = stego.PanopticFPN(args)
+#     elif args.arch == 'swinv2':
+#         model = cut_swin_and_dino.PanopticFPN(args)
+#     # model = cut_swin_and_dino.PanopticFPN(args)
+#     else:
+#         raise NotImplementedError(f"arch {args.arch} not implemented.")
+#     model = model.cuda()
+#     return model
 
 import matplotlib.pyplot as plt 
 import cv2

@@ -134,6 +134,7 @@ def make_one_from_crop(cuts, out_shape=384):
     h_scale = out_shape / origin_size[0]  
     B, C, H, W = cuts.shape
     out = torch.zeros((1, C, out_shape, out_shape), device=cuts.device)
+    cuts.unsqueeze_(1)
     weight = torch.zeros_like(out)
 
     resized_h_range = get_int_tuple(cut_range1[0] * h_scale, cut_range1[1] * h_scale)

@@ -155,7 +155,7 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, 1000)
+        # self.fc = nn.Linear(512 * block.expansion, 1000)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -201,25 +201,21 @@ class ResNet(nn.Module):
     def _forward_impl(self, x):
         outputs = {}
         # See note [TorchScript super()]
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        #outputs['stem'] = x
-
-        x = self.layer1(x)  # 1/4
-        outputs['res2'] = x
-
-        x = self.layer2(x)  # 1/8
-        outputs['res3'] = x
-
-        x = self.layer3(x)  # 1/16
-        outputs['res4'] = x
-
-        x = self.layer4(x)  # 1/32
-        outputs['res5'] = x
-
-        return outputs
+        with torch.no_grad():
+            x = self.conv1(x)
+            x = self.bn1(x)
+            x = self.relu(x)
+            x = self.maxpool(x)
+            #outputs['stem'] = x
+            x = self.layer1(x)  # 1/4
+            outputs['res2'] = x
+            x = self.layer2(x)  # 1/8
+            outputs['res3'] = x
+            x = self.layer3(x)  # 1/16
+            outputs['res4'] = x
+            x = self.layer4(x)  # 1/32
+            outputs['res5'] = x
+            return outputs
     
     def forward_classification(self, x):
         # See note [TorchScript super()]

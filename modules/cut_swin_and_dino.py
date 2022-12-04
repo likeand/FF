@@ -42,11 +42,10 @@ class PanopticFPN(nn.Module):
         self.mscam = MSCAM(1024, 1024 // 2)
         if "LF" in args.method:
             if "swin_only" in args.method:
-                self.lf = LayerFusion([256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
-            # elif "swin" in args.method:
-            #     self.lf = LayerFusion([])
+                # self.lf = LayerFusion([256, 512, 1024, 1024], args.in_dim, args.method.split('LF')[-1])
+                self.decoder = FPNDecoder(args)
             else:
-                self.lf = LayerFusion([768, 256, 512, 1024, 1024], 256, args.method.split('LF')[-1])
+                self.lf = LayerFusion([768, 256, 512, 1024, 1024], args.in_dim, args.method.split('LF')[-1])
         if args.method == 'dino_multiscale_ww':
             self.patch_weights = nn.Conv2d(768, 1, 1)
 
@@ -110,6 +109,20 @@ class PanopticFPN(nn.Module):
         classification = rearrange(rearr_classification, '(b h w) n -> b n h w', b=b, h=h, w=w)
         return classification, feature
     
+    def get_dino_features(self, img, n=1):
+        b, c, h, w = img.shape 
+        chunk_size = 4 
+        res = []
+        if b > chunk_size:
+            i = 0
+            while i < b:
+                img_slice = img[i: i + chunk_size]
+                res.append(self.forward_dino(img_slice))
+                i += chunk_size
+            return torch.cat(res, dim=0)
+        else:
+            return self.forward_dino(img)
+    
     def forward_dino(self, img, n=1):
         if not img.shape[3] == 384:
             img = F.interpolate(img, (384, 384)) 
@@ -142,9 +155,11 @@ class PanopticFPN(nn.Module):
             low_feature = self.conv(low_feature)
             fusion = mask * high_feature + (1 - mask) * low_feature
             return F.interpolate(fusion, self.args.tar_res, mode='bilinear')
-        elif self.args.method == 'swin_only_LFaff':
-            feats = self.forward_swin(img)
-            fusion = self.lf(feats[:-1])
+        elif self.args.method.startswith('swin_only_LF') :
+            feats = self.forward_swin(img, return_feats=True)
+            # fusion = self.lf(feats[:-1])
+            # print(f'{len(feats) = }')
+            fusion = self.decoder(feats[:-1])
             return fusion 
         elif self.args.method == 'swin_dino_LFaff':
             feats = self.forward_swin(img, return_feats=True) # img (b, 3, 384, 384) feats[ (b, 256, 48, 48), (b, 512, 24, 24), (b, 1024, 12, 12), (b, 1024, 12, 12), (b, 1024, 12, 12)] -2, -1 same.
@@ -187,14 +202,14 @@ class PanopticFPN(nn.Module):
         elif self.args.method == 'dino_multiscale':
             assert img.shape[-1] == 2048, "size not right"
             cuts = make_crop(img, self.args.res)
-            feats = self.forward_dino(cuts)
+            feats = self.get_dino_features(cuts)
             outs = make_one_from_crop(feats, out_shape=self.args.tar_res)
             outs = self.conv(outs)
             return outs 
         elif self.args.method == 'dino_multiscale_ww':
             assert img.shape[-1] == 2048, "size not right"
             cuts = make_crop(img, self.args.res)
-            feats = self.forward_dino(cuts)
+            feats = self.get_dino_features(cuts)
             weights = self.patch_weights(feats)
             outs = make_one_from_crop_with_weights(feats, weights, out_shape=self.args.tar_res)
             outs = self.conv(outs)
@@ -223,31 +238,46 @@ class PanopticFPN(nn.Module):
         else:
             print(f'Unknow method {self.args.method}')
 
- 
 class FPNDecoder(nn.Module):
-    def __init__(self, args, num_features, n_classes):
+    def __init__(self, args):
         super(FPNDecoder, self).__init__()
-        if args.linear:
-            # self.classifier = nn.Sequential(
-            #     nn.BatchNorm2d(num_features), 
-            #     nn.Conv2d(num_features, n_classes, 1, 1, 0)
-            # )
-            self.classifier = nn.Conv2d(num_features, n_classes, 1, 1, 0)
+        if args.arch == 'resnet18':
+            self.mfactor = 1
+            self.out_dim = args.in_dim 
         else:
-            self.classifier = nn.Sequential(
-                nn.BatchNorm2d(num_features), 
-                DoubleConv(num_features, n_classes, 512)
-            )
+            self.mfactor = 4
+            self.out_dim = args.in_dim
+        self.tar_res = args.tar_res
+        # 256, 512, 1024, 1024
+        self.layer4 = nn.Conv2d(256, self.out_dim, kernel_size=1, stride=1, padding=0)
+        self.layer3 = nn.Conv2d(512, self.out_dim, kernel_size=1, stride=1, padding=0)
+        self.layer2 = nn.Conv2d(1024, self.out_dim, kernel_size=1, stride=1, padding=0)
+        self.layer1 = nn.Conv2d(1024, self.out_dim, kernel_size=1, stride=1, padding=0)
+        torch.nn.init.kaiming_uniform_(self.layer1.weight)
+        torch.nn.init.kaiming_uniform_(self.layer2.weight)
+        torch.nn.init.kaiming_uniform_(self.layer3.weight)
+        torch.nn.init.kaiming_uniform_(self.layer4.weight)
+        
         
     def forward(self, feats):
-        out = self.classifier(feats)
-        out = F.softmax(out, dim=1)
-        return out
+        # print(f'{len(feats)}')
+        # for feat in feats:
+        #     print(f'{feat.shape = }')
+        x1, x2, x3, x4 = feats
+        o1 = self.layer1(x4)
+        o2 = self.upsample_add(o1, self.layer2(x3))
+        o3 = self.upsample_add(o2, self.layer3(x2))
+        o4 = self.upsample_add(o3, self.layer4(x1))
+        F.interpolate(o4, self.tar_res, mode='bilinear')
+        return o4
 
     def upsample_add(self, x, y):
         _, _, H, W = y.size()
 
         return F.interpolate(x, size=(H, W), mode='bilinear', align_corners=False) + y 
+
+
+
 
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""

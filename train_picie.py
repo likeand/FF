@@ -12,7 +12,7 @@ from commons import *
 from modules import fpn 
 from data.cityscapes_eval_dataset import EvalCityscapesRAW
 from data.cityscapes_train_dataset import TrainCityscapesRAW
-
+from tqdm import tqdm 
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -34,7 +34,7 @@ def parse_arguments():
     
     ## arch to choose:
     ## resnet18, resnet50, dino, swinv2
-    arch = 'swinv2'
+    arch = 'resnet18'
     parser.add_argument('--arch', type=str, default=arch)
     # parser.add_argument('--arch_local_save', type=str, default="/data0/zx_files/models/mae_visualize_vit_large.pth")  
     parser.add_argument('--pretrain', action='store_true', default=True)
@@ -43,14 +43,17 @@ def parse_arguments():
     parser.add_argument('--res', type=int, default=RES, help='Input size.')
     parser.add_argument('--res1', type=int, default=RES, help='Input size scale from.')
     parser.add_argument('--res2', type=int, default=RES, help='Input size scale to.')
-    parser.add_argument('--tar_res', type=int, default=80, help='Output Feature size.')
+    parser.add_argument('--tar_res', type=int, default=48, help='Output Feature size.')
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    parser.add_argument('--method', type=str, default='dino_multiscale')
+    method = 'layer4'
+    parser.add_argument('--method', type=str, default=method)
     parser.add_argument('--batch_size_cluster', type=int, default=256)
-    parser.add_argument('--batch_size_train', type=int, default=2)
-    parser.add_argument('--batch_size_test', type=int, default=4)
+    
+    bs = 1 if 'multiscale' in method else 8
+    parser.add_argument('--batch_size_train', type=int, default=bs)
+    parser.add_argument('--batch_size_test', type=int, default=bs)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument('--momentum', type=float, default=0.9)
@@ -58,15 +61,17 @@ def parse_arguments():
     parser.add_argument('--num_init_batches', type=int, default=20)
     parser.add_argument('--num_batches', type=int, default=1)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
-    parser.add_argument('--in_dim', type=int, default=1024)
+    
+    in_dim = 256 if arch.startswith('resnet') or arch == 'swinv2' else 1024
+    parser.add_argument('--in_dim', type=int, default=in_dim)
     parser.add_argument('--X', type=int, default=80)
 
     # Loss. 
     parser.add_argument('--metric_train', type=str, default='cosine')   
     parser.add_argument('--metric_test', type=str, default='cosine')
-    parser.add_argument('--K_cluster', type=int, default=27) # number of clusters, which will be further classified into K_train
-    parser.add_argument('--K_train', type=int, default=27) # COCO Stuff-15 / COCO Thing-12 / COCO All-27
-    parser.add_argument('--K_test', type=int, default=27) 
+    parser.add_argument('--K_cluster', type=int, default=28) # number of clusters, which will be further classified into K_train
+    parser.add_argument('--K_train', type=int, default=28) # COCO Stuff-15 / COCO Thing-12 / COCO All-27
+    parser.add_argument('--K_test', type=int, default=28) 
     parser.add_argument('--obj_classes', type=int, default=27) 
     parser.add_argument('--things_classes', type=int, default=27) 
     
@@ -113,8 +118,8 @@ def train(args, logger, dataloader, model, classifier1, classifier2, criterion1,
     if args.mse:
         criterion_mse = torch.nn.MSELoss().cuda()
 
-    classifier1.eval()
-    classifier2.eval()
+    # classifier1.eval()
+    # classifier2.eval()
     for i, (indice, input1, input2, label1, label2) in enumerate(dataloader):
         input1 = eqv_transform_if_needed(args, dataloader, indice, input1.cuda(non_blocking=True))
         label1 = label1.cuda(non_blocking=True)
@@ -122,6 +127,8 @@ def train(args, logger, dataloader, model, classifier1, classifier2, criterion1,
         
         input2 = input2.cuda(non_blocking=True)
         label2 = label2.cuda(non_blocking=True)
+        # label1[label1 < 0] = 0
+        # label2[label2 < 0] = 0
         featmap2 = eqv_transform_if_needed(args, dataloader, indice, model(input2))
 
         B, C, _ = featmap1.size()[:3]
@@ -189,6 +196,192 @@ def adjust_learning_rate(optimizer, epoch, args):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
+def train_linear(args, logger):
+    metric_list = []
+    args.equiv = False 
+    # Start time.
+    t_start = t.time()
+    model, optimizer, classifier1 = get_model_and_optimizer(args, logger)
+    # inv_list, eqv_list = get_transform_params(args)
+    # trainset = get_dataset(args, mode='train', inv_list=inv_list, eqv_list=eqv_list)
+    trainset = get_dataset(args, mode='train_val')
+    # trainset = TrainCityscapesRAW(args.data_root, res=args.res, split='train', mode='train')
+    trainloader = torch.utils.data.DataLoader(trainset, 
+                                                batch_size=args.batch_size_train,
+                                                shuffle=False, 
+                                                num_workers=args.num_workers,
+                                                pin_memory=True,
+                                                collate_fn=collate_train,
+                                                worker_init_fn=worker_init_fn(args.seed))
+    
+    testset    = get_dataset(args, mode='train_val')
+    # testset = EvalCityscapesRAW(args.data_root, res=args.res, split='val', mode='train_val',
+                                        # label_mode=args.label_mode, long_image=args.long_image)
+    testloader = torch.utils.data.DataLoader(testset,
+                                             batch_size=args.batch_size_test,
+                                             shuffle=False,
+                                             num_workers=args.num_workers,
+                                             pin_memory=True,
+                                             collate_fn=collate_eval,
+                                             worker_init_fn=worker_init_fn(args.seed))
+    
+    # Before train.
+    # _, _ = evaluate(args, logger, testloader, classifier1, model)
+    
+    if not args.eval_only:
+        # Train start.
+        for epoch in range(args.start_epoch, args.num_epoch):
+            # Assign probs. 
+            # trainloader.dataset.mode = 'compute'
+            # trainloader.dataset.reshuffle()
+
+            # Adjust lr if needed. 
+            # adjust_learning_rate(optimizer, epoch, args)
+
+            logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
+            logger.info('Start computing centroids.')
+            t1 = t.time()
+            # centroids1, kmloss1 = run_mini_batch_kmeans(args, logger, trainloader, model, view=1)
+            # centroids2, kmloss2 = run_mini_batch_kmeans(args, logger, trainloader, model, view=2)
+            # logger.info('-Centroids ready. [Loss: {:.5f}| {:.5f}/ Time: {}]\n'.format(kmloss1, kmloss2, get_datetime(int(t.time())-int(t1))))
+            
+            # Compute cluster assignment. 
+            t2 = t.time()
+
+            # logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
+            
+            # Criterion.
+
+            criterion1 = torch.nn.CrossEntropyLoss().cuda()
+            # criterion2 = torch.nn.CrossEntropyLoss().cuda()
+
+            # Setup nonparametric classifier.
+            # classifier1 = initialize_classifier(args)
+            # classifier2 = initialize_classifier(args)
+            # classifier1.module.weight.data = centroids1.unsqueeze(-1).unsqueeze(-1)
+            # classifier2.module.weight.data = centroids2.unsqueeze(-1).unsqueeze(-1)
+            # classifier1.weight.data = centroids1.unsqueeze(-1).unsqueeze(-1)
+            # classifier2.weight.data = centroids2.unsqueeze(-1).unsqueeze(-1)
+            # freeze_all(classifier1)
+            # freeze_all(classifier2)
+
+            # Set-up train loader.
+            # trainset.mode  = 'linear_train'
+            trainloader_loop  = torch.utils.data.DataLoader(trainset, 
+                                                            batch_size=args.batch_size_train, 
+                                                            shuffle=True,
+                                                            num_workers=args.num_workers,
+                                                            pin_memory=True,
+                                                            collate_fn=collate_eval,
+                                                            worker_init_fn=worker_init_fn(args.seed))
+
+            logger.info('Start training ...')
+            # train_loss, train_cet, cet_within, cet_across, train_mse = train(args, logger, trainloader_loop, model, classifier1, classifier2, criterion1, criterion2, optimizer, epoch) 
+            train_loss = 0
+            for index, image, label in tqdm(trainloader_loop):
+                if (not image.shape[-1] == args.res) and (not 'multiscale' in args.method):
+                    image = F.interpolate(image, (args.res, args.res))
+                label = F.interpolate(label.unsqueeze_(1).float(), (args.tar_res, args.tar_res), mode='bilinear').long().squeeze_(1)
+                image = image.cuda()
+                label = label.cuda()
+                
+                label[label<0] = 27
+                feat = model(image)
+                segs = classifier1(feat)
+                
+                loss = criterion1(segs, label)
+                train_loss += loss.item()
+                
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                    
+            acc1, res1 = evaluate(args, logger, testloader, classifier1, model)
+            # acc2, res2 = evaluate(args, logger, testloader, classifier2, model)
+            
+            logger.info('============== Epoch [{}] =============='.format(epoch))
+            logger.info('  Time: [{}]'.format(get_datetime(int(t.time())-int(t1))))
+            # logger.info('  K-Means loss   : {:.5f} | {:.5f}'.format(kmloss1, kmloss2))
+            logger.info('  Training Total Loss  : {:.5f}'.format(train_loss))
+            # logger.info('  Training CE Loss (Total | Within | Across) : {:.5f} | {:.5f} | {:.5f}'.format(train_cet, cet_within, cet_across))
+            # logger.info('  Training MSE Loss (Total) : {:.5f}'.format(train_mse))
+            logger.info('  [View 1] ACC: {:.4f} | mIoU: {:.4f}'.format(acc1, res1['mean_iou']))
+            # logger.info('  [View 2] ACC: {:.4f} | mIoU: {:.4f}'.format(acc2, res2['mean_iou']))
+            logger.info('========================================\n')
+            for i in [1]:
+                metric_list.append(
+                    {
+                        'miou': eval(f'res{i}')['mean_iou'],
+                        'acc':  eval(f'acc{i}'),
+                        'epoch': epoch + 1
+                    }
+                )
+            prefix = f'train_{args.arch}_{args.res}_{args.method}'
+            torch.save({'epoch': epoch+1, 
+                        'args' : args,
+                        'state_dict': model.state_dict(),
+                        'classifier1_state_dict' : classifier1.state_dict(),
+                        # 'classifier2_state_dict' : classifier2.state_dict(),
+                        'optimizer' : optimizer.state_dict(),
+                        },
+                        os.path.join(args.save_model_path, f'{prefix}_checkpoint_{epoch}.pth.tar'))
+            
+            # torch.save({'epoch': epoch+1, 
+            #             'args' : args,
+            #             'state_dict': model.state_dict(),
+            #             'classifier1_state_dict' : classifier1.state_dict(),
+            #             # 'classifier2_state_dict' : classifier2.state_dict(),
+            #             'optimizer' : optimizer.state_dict(),
+            #             },
+            #             os.path.join(args.save_model_path, f'{prefix}_checkpoint.pth.tar'))
+        
+        # # Evaluate.
+        # trainset    = get_dataset(args, mode='eval_val')
+        # trainloader = torch.utils.data.DataLoader(trainset, 
+        #                                             batch_size=args.batch_size_cluster,
+        #                                             shuffle=True,
+        #                                             num_workers=args.num_workers,
+        #                                             pin_memory=True,
+        #                                             collate_fn=collate_train,
+        #                                             worker_init_fn=worker_init_fn(args.seed))
+
+        # testset    = get_dataset(args, mode='eval_test')
+        # testloader = torch.utils.data.DataLoader(testset, 
+        #                                         batch_size=args.batch_size_test,
+        #                                         shuffle=False,
+        #                                         num_workers=args.num_workers,
+        #                                         pin_memory=True,
+        #                                         collate_fn=collate_eval,
+        #                                         worker_init_fn=worker_init_fn(args.seed))
+
+        # # Evaluate with fresh clusters.
+        # acc_list_new = []  
+        # res_list_new = []                 
+        # logger.info('Start computing centroids.')
+        # if args.repeats > 0:
+        #     for _ in range(args.repeats):
+        #         t1 = t.time()
+        #         centroids1, kmloss1 = run_mini_batch_kmeans(args, logger, trainloader, model, view=-1)
+        #         logger.info('-Centroids ready. [Loss: {:.5f}/ Time: {}]\n'.format(kmloss1, get_datetime(int(t.time())-int(t1))))
+                
+        #         classifier1 = initialize_classifier(args)
+        #         classifier1.module.weight.data = centroids1.unsqueeze(-1).unsqueeze(-1)
+        #         freeze_all(classifier1)
+                
+        #         acc_new, res_new = evaluate(args, logger, testloader, classifier1, model)
+        #         acc_list_new.append(acc_new)
+        #         res_list_new.append(res_new)
+        # else:
+        #     acc_new, res_new = evaluate(args, logger, testloader, classifier1, model)
+        #     acc_list_new.append(acc_new)
+        #     res_list_new.append(res_new)
+
+        # logger.info('Average overall pixel accuracy [NEW] : {:.3f} +/- {:.3f}.'.format(np.mean(acc_list_new), np.std(acc_list_new)))
+        # logger.info('Average mIoU [NEW] : {:.3f} +/- {:.3f}. '.format(np.mean([res['mean_iou'] for res in res_list_new]), 
+        #                                                             np.std([res['mean_iou'] for res in res_list_new])))
+        logger.info('Experiment done. [{}]\n'.format(get_datetime(int(t.time())-int(t_start))))
+        metric_list.sort(key=lambda x: x['miou'], reverse=True)
+        logger.info(metric_list)
 
 def main(args, logger):
     logger.info(args)
@@ -379,7 +572,7 @@ if __name__=='__main__':
     if args.mse:
         args.save_root += '/mse'
         
-    prefix = f'train_picie_{args.arch}_{args.res}_{args.method}'
+    prefix = f'train_linear_{args.arch}_{args.res}_{args.method}'
     args.save_root = './train_results/' + prefix
     args.save_model_path = args.save_root + '/models/'
     # args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}_{}'.format(args.K_train, args.metric_train))
@@ -393,4 +586,5 @@ if __name__=='__main__':
     
     # Start.
 
-    main(args, logger)
+    # main(args, logger)
+    train_linear(args, logger)
