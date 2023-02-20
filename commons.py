@@ -258,6 +258,8 @@ def evaluate(args, logger, dataloader, classifier, model):
     
     res1 = {"mean_iou": iou[~torch.isnan(iou)].mean().item(),
             "overall_precision (pixel accuracy)": opc.item(),
+            "iou": iou,
+            "prc": prc
     }
     acc = opc.item() 
     # Evaluate. 

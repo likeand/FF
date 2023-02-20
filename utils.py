@@ -13,6 +13,7 @@ from data.coco_train_dataset import TrainCOCO
 from data.coco_eval_dataset import EvalCOCO 
 from data.cityscapes_train_dataset import TrainCityscapes, TrainCityscapesRAW
 from data.cityscapes_eval_dataset import EvalCityscapes, EvalCityscapesRAW
+from data.medical_train_eval import TrainMedical
 
 ################################################################################
 #                                  General-purpose                             #
@@ -183,7 +184,7 @@ def initialize_classifier(args):
     return classifier
 
 def get_linear(indim, outdim):
-    classifier = nn.Conv2d(indim, outdim, kernel_size=1, stride=1, padding=0, bias=True)
+    classifier = nn.Conv2d(in_channels=indim, out_channels=outdim, kernel_size=1, stride=1, padding=0, bias=True)
     classifier.weight.data.normal_(0, 0.01)
     classifier.bias.data.zero_()
 
@@ -327,6 +328,8 @@ def collate_train_baseline(batch):
     return indice, image
 
 def get_dataset(args, mode, inv_list=[], eqv_list=[]):
+    if args.cityscapes == 'med':
+        return TrainMedical(args.data_root, res=args.res)
     if args.cityscapes:
         if mode == 'train':
             func = TrainCityscapesRAW if 'multiscale' in args.method else TrainCityscapes

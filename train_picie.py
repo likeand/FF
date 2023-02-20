@@ -17,9 +17,9 @@ from tqdm import tqdm
 def parse_arguments():
     parser = argparse.ArgumentParser()
     
-    ds = 'coco' # 'city'
-    parser.add_argument('--data_root', type=str, default=f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'cityscapes' if ds == 'city' else 'coco_stuff'}")   
-    parser.add_argument('--cityscapes', action='store_true', default= (ds == 'city'))
+    ds = 'med' # 'city', 'coco'
+    parser.add_argument('--data_root', type=str, default=f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'med' if ds == 'med' else ('cityscapes' if ds == 'city' else 'coco_stuff')}")   
+    parser.add_argument('--cityscapes', action='store_true', default= 'med' if ds == 'med' else (ds == 'city'))
     
     parser.add_argument('--save_root', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--save_model_path', type=str, default="/home/zhulifu/unsup_seg/train_out")
@@ -31,7 +31,7 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=2021, help='Random seed for reproducability.')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of workers.')
     parser.add_argument('--restart', action='store_true', default=False)
-    parser.add_argument('--num_epoch', type=int, default=10) 
+    parser.add_argument('--num_epoch', type=int, default=3) 
     parser.add_argument('--repeats', type=int, default=0)  
     parser.add_argument('--linear', type=bool, default=True)
     # Train. 
@@ -50,8 +50,8 @@ def parse_arguments():
     parser.add_argument('--tar_res', type=int, default=48, help='Output Feature size.')
     
     ## methods to choose:
-    ## cam, multiscale, cam_multiscale
-    method = 'swin_only_LFadd'
+    ## cam, multiscale, cam_multiscale, swin_only_LF
+    method = 'dino'
     parser.add_argument('--method', type=str, default=method)
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     
@@ -66,16 +66,17 @@ def parse_arguments():
     parser.add_argument('--num_batches', type=int, default=1)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
     
-    in_dim = 256 if arch.startswith('resnet') or arch == 'swinv2' else 1024
+    in_dim = 256 if arch.startswith('resnet') or (arch == 'swinv2' and method != 'dino') else 1024
     parser.add_argument('--in_dim', type=int, default=in_dim)
     parser.add_argument('--X', type=int, default=80)
 
     # Loss. 
+    classes = 4 if ds == 'med' else 28
     parser.add_argument('--metric_train', type=str, default='cosine')   
     parser.add_argument('--metric_test', type=str, default='cosine')
-    parser.add_argument('--K_cluster', type=int, default=28) # number of clusters, which will be further classified into K_train
-    parser.add_argument('--K_train', type=int, default=28) # COCO Stuff-15 / COCO Thing-12 / COCO All-27
-    parser.add_argument('--K_test', type=int, default=28) 
+    parser.add_argument('--K_cluster', type=int, default=classes) # number of clusters, which will be further classified into K_train
+    parser.add_argument('--K_train', type=int, default=classes) # COCO Stuff-15 / COCO Thing-12 / COCO All-27
+    parser.add_argument('--K_test', type=int, default=classes) 
     parser.add_argument('--obj_classes', type=int, default=27) 
     parser.add_argument('--things_classes', type=int, default=27) 
     
@@ -284,16 +285,19 @@ def train_linear(args, logger):
             train_loss = 0
             for index, image, label in tqdm(trainloader_loop):
                 if (not image.shape[-1] == args.res) and (not 'multiscale' in args.method):
-                    image = F.interpolate(image, (args.res, args.res))
-                label = F.interpolate(label.unsqueeze_(1).float(), (args.tar_res, args.tar_res), mode='bilinear').long().squeeze_(1)
+                    image = F.interpolate(image, (args.res, args.res), mode='nearest')
+                # print(f'bi {torch.min(label) = }  {torch.max(label) = }')
+                label = F.interpolate(label.unsqueeze_(1).float(), (args.tar_res, args.tar_res), mode='nearest').long().squeeze_(1)
+                # print(f'ai {torch.min(label) = }  {torch.max(label) = }')
                 image = image.cuda()
                 label = label.cuda()
                 
-                label[label<0] = 27
+                # label[label<0] = 0
                 feat = model(image)
                 segs = classifier1(feat)
-                
+                # print(f'bl {torch.min(label) = }  {torch.max(label) = }')
                 loss = criterion1(segs, label)
+                # print(f'al {torch.min(label) = }  {torch.max(label) = }')
                 train_loss += loss.item()
                 
                 optimizer.zero_grad()
@@ -317,11 +321,13 @@ def train_linear(args, logger):
                     {
                         'miou': eval(f'res{i}')['mean_iou'],
                         'acc':  eval(f'acc{i}'),
+                        'iou': eval(f'res{i}')['iou'],
+                        'prc': eval(f'res{i}')['prc'],
                         'epoch': epoch + 1
                     }
                 )
             # prefix = f'train_{args.arch}_{args.res}_{args.method}'
-            ds = 'coco_' if not args.cityscapes else ''
+            ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
             prefix = f'train_{ds}{args.arch}_{args.res}_{args.method}'
             torch.save({'epoch': epoch+1, 
                         'args' : args,

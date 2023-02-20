@@ -18,8 +18,10 @@ from tqdm import tqdm
 def parse_arguments():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--data_root', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/cityscapes")
-    ds = 'coco' # 'city'
-    parser.add_argument('--data_root', type=str, default=f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'cityscapes' if ds == 'city' else 'coco_stuff'}")
+    ds = 'med' # 'city', 'coco'
+    parser.add_argument('--data_root', type=str, default=f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'med' if ds == 'med' else ('cityscapes' if ds == 'city' else 'coco_stuff')}")   
+    parser.add_argument('--cityscapes', action='store_true', default= 'med' if ds == 'med' else (ds == 'city'))
+    
     parser.add_argument('--save_root', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--save_model_path', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--model_dir', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/models")
@@ -37,7 +39,7 @@ def parse_arguments():
     
     ## arch to choose:
     ## resnet18, resnet50, dino, swinv2, stego, picie
-    arch = 'resnet50'
+    arch = 'swinv2'
     parser.add_argument('--arch', type=str, default=arch)
     # parser.add_argument('--arch_local_save', type=str, default="/data0/zx_files/models/mae_visualize_vit_large.pth")  
     parser.add_argument('--pretrain', action='store_true', default=True)
@@ -50,7 +52,7 @@ def parse_arguments():
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    method = ''
+    method = 'dino'
     parser.add_argument('--method', type=str, default=method)
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     
@@ -65,17 +67,19 @@ def parse_arguments():
     parser.add_argument('--num_batches', type=int, default=1)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
     
-    in_dim = 256 if arch.startswith('resnet') or arch == 'swinv2' else 1024
+    in_dim = 256 if arch.startswith('resnet') or (arch == 'swinv2' and method != 'dino') else 1024
     parser.add_argument('--in_dim', type=int, default=in_dim)
     parser.add_argument('--X', type=int, default=80)
 
     # Loss. 
+    classes = 4 if ds == 'med' else 28
     parser.add_argument('--metric_train', type=str, default='cosine')   
     parser.add_argument('--metric_test', type=str, default='cosine')
-    K_ = 27 if arch == 'picie' or arch == 'stego' else 28
-    parser.add_argument('--K_cluster', type=int, default=K_) # number of clusters, which will be further classified into K_train
-    parser.add_argument('--K_train', type=int, default=K_) # COCO Stuff-15 / COCO Thing-12 / COCO All-27
-    parser.add_argument('--K_test', type=int, default=K_) 
+    parser.add_argument('--K_cluster', type=int, default=classes) # number of clusters, which will be further classified into K_train
+    parser.add_argument('--K_train', type=int, default=classes) # COCO Stuff-15 / COCO Thing-12 / COCO All-27
+    parser.add_argument('--K_test', type=int, default=classes) 
+    parser.add_argument('--obj_classes', type=int, default=27) 
+    parser.add_argument('--things_classes', type=int, default=27) 
     
     parser.add_argument('--no_balance', action='store_true', default=False)
     parser.add_argument('--mse', action='store_true', default=False)
@@ -101,14 +105,14 @@ def parse_arguments():
     parser.add_argument('--eval_path', type=str)
 
     # Cityscapes-specific.
-    parser.add_argument('--cityscapes', action='store_true', default=False)
+    # parser.add_argument('--cityscapes', action='store_true', default=False)
     parser.add_argument('--label_mode', type=str, default='gtFine')
     parser.add_argument('--long_image', action='store_true', default=False)
     return parser.parse_args()
 
-def draw_segs(args, logger, epoch=9):
+def draw_segs(args, logger, epoch=0):
     model, optimizer, classifier1 = get_model_and_optimizer(args, logger)
-    ds = 'coco_' if not args.cityscapes else ''
+    ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
     prefix = f'train_{ds}{args.arch}_{args.res}_{args.method}'
     if args.arch == 'stego':
         mapping = torch.load('/home/zhulifu/unsup_seg/trials_unsupervised_segmentation/gen_files/' + ds + 'stego_320_assignments.pth')
@@ -158,7 +162,7 @@ def draw_segs(args, logger, epoch=9):
     logger.info('Start computing segmentations.')
     t1 = t.time()
     all_results = []
-    out_dir='draw_image_result' if args.cityscapes else 'draw_image_result_coco'
+    out_dir='draw_image_result_med' if args.cityscapes == 'med' else('draw_image_result' if args.cityscapes else 'draw_image_result_coco')
     cmap = create_cityscapes_colormap()
     unorm = UnNormalize(*getStat())
     trial_name = prefix[6:]
@@ -313,8 +317,9 @@ def get_stego_picie_hist():
 
 if __name__ == "__main__":
     args = parse_arguments()
-    args.cityscapes = False
-    ds = 'coco_' if not args.cityscapes else ''
+    args.cityscapes = 'med'
+    ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
+
     prefix = f'train_linear_{args.arch}_{args.res}_{args.method}'
     # prefix = f'train_picie_{args.arch}_{args.res}_{args.method}'
     args.save_root = './train_results/' + prefix
@@ -328,7 +333,7 @@ if __name__ == "__main__":
     if not os.path.exists(args.save_eval_path):
         os.mkdir(args.save_eval_path)
     logger = set_logger(os.path.join(args.save_eval_path, 'train.log'))
-    draw_segs(args, logger, epoch=2)
+    draw_segs(args, logger, epoch=0)
     # import os
     # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     # get_stego_picie_hist()
