@@ -16,7 +16,11 @@ from tqdm import tqdm
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_root', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/cityscapes")
+    
+    ds = 'coco' # 'city'
+    parser.add_argument('--data_root', type=str, default=f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'cityscapes' if ds == 'city' else 'coco_stuff'}")   
+    parser.add_argument('--cityscapes', action='store_true', default= (ds == 'city'))
+    
     parser.add_argument('--save_root', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--save_model_path', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--model_dir', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/models")
@@ -34,7 +38,7 @@ def parse_arguments():
     
     ## arch to choose:
     ## resnet18, resnet50, dino, swinv2
-    arch = 'resnet18'
+    arch = 'swinv2'
     parser.add_argument('--arch', type=str, default=arch)
     # parser.add_argument('--arch_local_save', type=str, default="/data0/zx_files/models/mae_visualize_vit_large.pth")  
     parser.add_argument('--pretrain', action='store_true', default=True)
@@ -47,7 +51,7 @@ def parse_arguments():
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    method = 'layer4'
+    method = 'swin_only_LFadd'
     parser.add_argument('--method', type=str, default=method)
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     
@@ -99,7 +103,7 @@ def parse_arguments():
     parser.add_argument('--eval_path', type=str)
 
     # Cityscapes-specific.
-    parser.add_argument('--cityscapes', action='store_true', default=True)
+    
     parser.add_argument('--label_mode', type=str, default='gtFine')
     parser.add_argument('--long_image', action='store_true', default=False)
     return parser.parse_args()
@@ -316,7 +320,9 @@ def train_linear(args, logger):
                         'epoch': epoch + 1
                     }
                 )
-            prefix = f'train_{args.arch}_{args.res}_{args.method}'
+            # prefix = f'train_{args.arch}_{args.res}_{args.method}'
+            ds = 'coco_' if not args.cityscapes else ''
+            prefix = f'train_{ds}{args.arch}_{args.res}_{args.method}'
             torch.save({'epoch': epoch+1, 
                         'args' : args,
                         'state_dict': model.state_dict(),

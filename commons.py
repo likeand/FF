@@ -243,7 +243,8 @@ def evaluate(args, logger, dataloader, classifier, model):
 
     histogram = histogram[np.argsort(assignments[1]), :]
     histogram = torch.Tensor(histogram)
-    prefix = f'gen_files/{args.arch}_{args.res}_{args.method}'
+    ds = 'coco_' if not args.cityscapes else ''
+    prefix = f'gen_files/{ds}{args.arch}_{args.res}_{args.method}'
     torch.save(histogram, prefix + 'hist.pth')
     torch.save(assignments[1], prefix + 'assignments.pth')
     tp = torch.diag(histogram)

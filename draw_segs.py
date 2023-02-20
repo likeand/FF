@@ -17,7 +17,9 @@ from tqdm import tqdm
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_root', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/cityscapes")
+    # parser.add_argument('--data_root', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/cityscapes")
+    ds = 'coco' # 'city'
+    parser.add_argument('--data_root', type=str, default=f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'cityscapes' if ds == 'city' else 'coco_stuff'}")
     parser.add_argument('--save_root', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--save_model_path', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--model_dir', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/models")
@@ -35,7 +37,7 @@ def parse_arguments():
     
     ## arch to choose:
     ## resnet18, resnet50, dino, swinv2, stego, picie
-    arch = 'picie'
+    arch = 'resnet50'
     parser.add_argument('--arch', type=str, default=arch)
     # parser.add_argument('--arch_local_save', type=str, default="/data0/zx_files/models/mae_visualize_vit_large.pth")  
     parser.add_argument('--pretrain', action='store_true', default=True)
@@ -52,7 +54,7 @@ def parse_arguments():
     parser.add_argument('--method', type=str, default=method)
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     
-    bs = 1 if 'multiscale' in method else 1
+    bs = 1 if 'multiscale' in method else 8
     parser.add_argument('--batch_size_train', type=int, default=bs)
     parser.add_argument('--batch_size_test', type=int, default=bs)
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -63,7 +65,7 @@ def parse_arguments():
     parser.add_argument('--num_batches', type=int, default=1)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
     
-    in_dim = 256 if arch.startswith('resnet') else 128 if arch == 'picie' else 1024
+    in_dim = 256 if arch.startswith('resnet') or arch == 'swinv2' else 1024
     parser.add_argument('--in_dim', type=int, default=in_dim)
     parser.add_argument('--X', type=int, default=80)
 
@@ -99,26 +101,29 @@ def parse_arguments():
     parser.add_argument('--eval_path', type=str)
 
     # Cityscapes-specific.
-    parser.add_argument('--cityscapes', action='store_true', default=True)
+    parser.add_argument('--cityscapes', action='store_true', default=False)
     parser.add_argument('--label_mode', type=str, default='gtFine')
     parser.add_argument('--long_image', action='store_true', default=False)
     return parser.parse_args()
 
 def draw_segs(args, logger, epoch=9):
     model, optimizer, classifier1 = get_model_and_optimizer(args, logger)
-
-    prefix = f'train_{args.arch}_{args.res}_{args.method}'
+    ds = 'coco_' if not args.cityscapes else ''
+    prefix = f'train_{ds}{args.arch}_{args.res}_{args.method}'
     if args.arch == 'stego':
-        mapping = torch.load('/home/zhulifu/unsup_seg/trials_unsupervised_segmentation/gen_files/stego_320_assignments.pth')
+        mapping = torch.load('/home/zhulifu/unsup_seg/trials_unsupervised_segmentation/gen_files/' + ds + 'stego_320_assignments.pth')
         mymap = list(enumerate(mapping))
         mymap.sort(key=lambda x: x[1])
         mapping = np.array([x[0] for x in mymap])
     elif args.arch == 'picie':
-        mapping = torch.load('./gen_files/picie_320_assignments.pth')
+        mapping = torch.load('./gen_files/' + ds + 'picie_320_assignments.pth')
         mymap = list(enumerate(mapping))
         mymap.sort(key=lambda x: x[1])
         mapping = np.array([x[0] for x in mymap])
-        pth = torch.load('/home/zhulifu/unsup_seg/STEGO-master/saved_models/picie_city.tar')
+        if args.cityscapes:
+            pth = torch.load('/home/zhulifu/unsup_seg/STEGO-master/saved_models/picie_city.tar')
+        else:
+            pth = torch.load('/home/zhulifu/unsup_seg/STEGO-master/saved_models/picie_coco.pkl')
         nd = {}
         for key in pth['state_dict'].keys():
             if key.startswith('module.'):
@@ -153,7 +158,7 @@ def draw_segs(args, logger, epoch=9):
     logger.info('Start computing segmentations.')
     t1 = t.time()
     all_results = []
-    out_dir='draw_image_result'
+    out_dir='draw_image_result' if args.cityscapes else 'draw_image_result_coco'
     cmap = create_cityscapes_colormap()
     unorm = UnNormalize(*getStat())
     trial_name = prefix[6:]
@@ -188,6 +193,8 @@ def draw_segs(args, logger, epoch=9):
                 if args.arch == 'stego' or args.arch == 'picie':
                     se = mapping[se]
                 se[lb == 27] = 27
+                if not args.cityscapes:
+                    lb[lb > 27] = 0
                 hist = scores(lb, se, args.K_test)
                 result = get_result_metrics(hist)
                 all_results.append((result['mean_iou'], stri))
@@ -245,15 +252,16 @@ def get_stego_picie_hist():
     for arch in ['stego', 'picie']:
     
         args = parse_arguments()
-        
+        args.cityscapes = False
         args.arch = arch 
         args.method = ''
         args.res = 320
         args.K_cluster = 27 #if arch == 'picie' else 28
         args.in_dim = 128 if arch == 'picie' else 1024
+        ds = 'coco_' if not args.cityscapes else ''
         
-        prefix = f'train_linear_{args.arch}_{args.res}_{args.method}'
-        # prefix = f'train_picie_{args.arch}_{args.res}_{args.method}'
+        prefix = f'train_linear_{ds}{args.arch}_{args.res}_{args.method}'
+        
         args.save_root = './train_results/' + prefix
         if not os.path.exists(args.save_root):
             os.mkdir(args.save_root)
@@ -268,11 +276,14 @@ def get_stego_picie_hist():
         logger.info(f'evaluating {arch}')
         
         model, optimizer, classifier1 = get_model_and_optimizer(args, logger)
-        prefix = f'train_{args.arch}_{args.res}_{args.method}'
+        # prefix = f'train_{args.arch}_{args.res}_{args.method}'
         if args.arch == 'stego':
             pass 
         elif args.arch == 'picie':
-            pth = torch.load('/home/zhulifu/unsup_seg/STEGO-master/saved_models/picie_city.tar')
+            if args.cityscapes:
+                pth = torch.load('/home/zhulifu/unsup_seg/STEGO-master/saved_models/picie_city.tar')
+            else:
+                pth = torch.load('/home/zhulifu/unsup_seg/STEGO-master/saved_models/picie_coco.pkl')
             nd = {}
             for key in pth['state_dict'].keys():
                 if key.startswith('module.'):
@@ -283,7 +294,6 @@ def get_stego_picie_hist():
                 if key.startswith('module.'):
                     nd[key[7:]] = pth['classifier1_state_dict'][key]
             classifier1.load_state_dict(nd)
-            
             classifier1.eval()
 
         model.eval()
@@ -303,31 +313,33 @@ def get_stego_picie_hist():
 
 if __name__ == "__main__":
     args = parse_arguments()
-    # prefix = f'train_linear_{args.arch}_{args.res}_{args.method}'
-    # # prefix = f'train_picie_{args.arch}_{args.res}_{args.method}'
-    # args.save_root = './train_results/' + prefix
-    # if not os.path.exists(args.save_root):
-    #     os.mkdir(args.save_root)
-    # args.save_model_path = args.save_root + '/models/'
-    # if not os.path.exists(args.save_model_path):
-    #     os.mkdir(args.save_model_path)
-    # # args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}_{}'.format(args.K_train, args.metric_train))
-    # args.save_eval_path  = os.path.join(args.save_model_path, 'K_test={}_{}'.format(args.K_test, args.metric_test))
-    # if not os.path.exists(args.save_eval_path):
-    #     os.mkdir(args.save_eval_path)
-    # logger = set_logger(os.path.join(args.save_eval_path, 'train.log'))
-    # draw_segs(args, logger, epoch=2)
+    args.cityscapes = False
+    ds = 'coco_' if not args.cityscapes else ''
+    prefix = f'train_linear_{args.arch}_{args.res}_{args.method}'
+    # prefix = f'train_picie_{args.arch}_{args.res}_{args.method}'
+    args.save_root = './train_results/' + prefix
+    if not os.path.exists(args.save_root):
+        os.mkdir(args.save_root)
+    args.save_model_path = args.save_root + '/models/'
+    if not os.path.exists(args.save_model_path):
+        os.mkdir(args.save_model_path)
+    # args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}_{}'.format(args.K_train, args.metric_train))
+    args.save_eval_path  = os.path.join(args.save_model_path, 'K_test={}_{}'.format(args.K_test, args.metric_test))
+    if not os.path.exists(args.save_eval_path):
+        os.mkdir(args.save_eval_path)
+    logger = set_logger(os.path.join(args.save_eval_path, 'train.log'))
+    draw_segs(args, logger, epoch=2)
     # import os
     # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     # get_stego_picie_hist()
-    testset    = get_dataset(args, mode='train_val')
-    # testset = EvalCityscapesRAW(args.data_root, res=args.res, split='val', mode='train_val',
-                                        # label_mode=args.label_mode, long_image=args.long_image)
-    testloader = torch.utils.data.DataLoader(testset,
-                                            batch_size=1,
-                                            shuffle=False,
-                                            num_workers=args.num_workers,
-                                            pin_memory=True,
-                                            collate_fn=collate_eval,
-                                            worker_init_fn=worker_init_fn(args.seed))
-    redraw_segs(testloader)
+    # testset    = get_dataset(args, mode='train_val')
+    # # testset = EvalCityscapesRAW(args.data_root, res=args.res, split='val', mode='train_val',
+    #                                     # label_mode=args.label_mode, long_image=args.long_image)
+    # testloader = torch.utils.data.DataLoader(testset,
+    #                                         batch_size=1,
+    #                                         shuffle=False,
+    #                                         num_workers=args.num_workers,
+    #                                         pin_memory=True,
+    #                                         collate_fn=collate_eval,
+    #                                         worker_init_fn=worker_init_fn(args.seed))
+    # redraw_segs(testloader)

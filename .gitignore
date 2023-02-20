@@ -3,6 +3,7 @@ train_logs/
 test_logs/
 train_results/
 draw_image_result/
+draw_image_result_coco/
 __pycache__/
 cams/
 train.aip

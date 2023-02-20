@@ -9,12 +9,14 @@ class PanopticFPN(nn.Module):
     def __init__(self, args):
         super(PanopticFPN, self).__init__()
 
-        RESUME = f'/home/zhulifu/unsup_seg/STEGO-master/saved_models/cityscapes_vit_base_1.ckpt'
+        RESUME = f'/home/zhulifu/unsup_seg/STEGO-master/saved_models/cityscapes_vit_base_1.ckpt' if args.cityscapes else \
+            '/home/zhulifu/unsup_seg/STEGO-master/saved_models/cocostuff27_vit_base_5.ckpt'
+        dim = 100 if args.cityscapes else 90
         stego_dict = torch.load(RESUME)
         print(f'loaded state dict from {RESUME}')
         
         self.patch_size = 8
-        self.backbone = DinoFeaturizer(100, stego_dict['hyper_parameters']['cfg'])
+        self.backbone = DinoFeaturizer(dim, stego_dict['hyper_parameters']['cfg'])
         nd = {}
         for key in stego_dict['state_dict'].keys():
             if key.startswith('net.'):
@@ -22,7 +24,7 @@ class PanopticFPN(nn.Module):
         self.backbone.load_state_dict(nd)
         self.args = args
 
-        self.cluster = ClusterLookup(100, 27)
+        self.cluster = ClusterLookup(dim, 27)
         self.cluster.load_state_dict({'clusters':stego_dict['state_dict']['cluster_probe.clusters']})
 
     def forward(self, img, n=1):
