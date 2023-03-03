@@ -11,5 +11,8 @@ train.aip
 train_picie.py
 new_dir.zip
 segs.zip 
-new_dir/
+med_seg.zip
+analysis.zip
 
+new_dir/
+size_analysis/

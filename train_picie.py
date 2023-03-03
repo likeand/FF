@@ -51,7 +51,7 @@ def parse_arguments():
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale, swin_only_LF
-    method = 'dino'
+    method = 'swin_only_LF'
     parser.add_argument('--method', type=str, default=method)
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     
