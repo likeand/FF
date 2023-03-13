@@ -17,9 +17,9 @@ from tqdm import tqdm
 def parse_arguments():
     parser = argparse.ArgumentParser()
     
-    ds = 'med' # 'city', 'coco'
-    parser.add_argument('--data_root', type=str, default=f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'med' if ds == 'med' else ('cityscapes' if ds == 'city' else 'coco_stuff')}")   
-    parser.add_argument('--cityscapes', action='store_true', default= 'med' if ds == 'med' else (ds == 'city'))
+    ds = 'breast' # 'med' # 'city', 'coco'
+    parser.add_argument('--data_root', type=str, default='/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/breastdata_test') # f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'med' if ds == 'med' else ('cityscapes' if ds == 'city' else 'coco_stuff')}")   
+    parser.add_argument('--cityscapes', action='store_true', default=ds)
     
     parser.add_argument('--save_root', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--save_model_path', type=str, default="/home/zhulifu/unsup_seg/train_out")
@@ -31,7 +31,7 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=2021, help='Random seed for reproducability.')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of workers.')
     parser.add_argument('--restart', action='store_true', default=False)
-    parser.add_argument('--num_epoch', type=int, default=3) 
+    parser.add_argument('--num_epoch', type=int, default=4) 
     parser.add_argument('--repeats', type=int, default=0)  
     parser.add_argument('--linear', type=bool, default=True)
     # Train. 
@@ -51,14 +51,14 @@ def parse_arguments():
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale, swin_only_LF
-    method = 'swin_only_LF'
+    method = 'dino'
     parser.add_argument('--method', type=str, default=method)
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     
     bs = 1 if 'multiscale' in method else 8
     parser.add_argument('--batch_size_train', type=int, default=bs)
     parser.add_argument('--batch_size_test', type=int, default=bs)
-    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--optim_type', type=str, default='Adam')
@@ -71,7 +71,7 @@ def parse_arguments():
     parser.add_argument('--X', type=int, default=80)
 
     # Loss. 
-    classes = 4 if ds == 'med' else 28
+    classes = 2 if ds == 'breast' else (4 if ds == 'med' else 28)
     parser.add_argument('--metric_train', type=str, default='cosine')   
     parser.add_argument('--metric_test', type=str, default='cosine')
     parser.add_argument('--K_cluster', type=int, default=classes) # number of clusters, which will be further classified into K_train
@@ -327,7 +327,8 @@ def train_linear(args, logger):
                     }
                 )
             # prefix = f'train_{args.arch}_{args.res}_{args.method}'
-            ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
+            # ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
+            ds = args.cityscapes
             prefix = f'train_{ds}{args.arch}_{args.res}_{args.method}'
             torch.save({'epoch': epoch+1, 
                         'args' : args,

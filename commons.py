@@ -25,7 +25,7 @@ def get_model(args):
     # model = cut_swin_and_dino.PanopticFPN(args)
     else:
         raise NotImplementedError("arch " + args.arch + " not implemented.")
-    model = model.cuda()
+    # model = model.cuda()
     return model
 
 def get_model_and_optimizer(args, logger):

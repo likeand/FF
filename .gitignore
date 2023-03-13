@@ -13,6 +13,8 @@ new_dir.zip
 segs.zip 
 med_seg.zip
 analysis.zip
-
 new_dir/
 size_analysis/
+*.tiff
+breast_seg.zip
+draw_image_result_breast/

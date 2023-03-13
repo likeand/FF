@@ -14,6 +14,7 @@ from data.coco_eval_dataset import EvalCOCO
 from data.cityscapes_train_dataset import TrainCityscapes, TrainCityscapesRAW
 from data.cityscapes_eval_dataset import EvalCityscapes, EvalCityscapesRAW
 from data.medical_train_eval import TrainMedical
+from data.breast_train_eval import TrainBreastMed
 
 ################################################################################
 #                                  General-purpose                             #
@@ -330,6 +331,8 @@ def collate_train_baseline(batch):
 def get_dataset(args, mode, inv_list=[], eqv_list=[]):
     if args.cityscapes == 'med':
         return TrainMedical(args.data_root, res=args.res)
+    elif args.cityscapes == 'breast':
+        return TrainBreastMed(args.data_root, res=args.res)
     if args.cityscapes:
         if mode == 'train':
             func = TrainCityscapesRAW if 'multiscale' in args.method else TrainCityscapes

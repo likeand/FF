@@ -159,8 +159,8 @@ class PanopticFPN(nn.Module):
             feats = self.forward_swin(img, return_feats=True)
             # fusion = self.lf(feats[:-1])
             # print(f'{len(feats) = }')
-            fusion = self.decoder(feats[:-1])
-            return fusion 
+            # fusion = self.decoder(feats[:-1])
+            return feats 
         elif self.args.method == 'swin_dino_LFaff':
             feats = self.forward_swin(img, return_feats=True) # img (b, 3, 384, 384) feats[ (b, 256, 48, 48), (b, 512, 24, 24), (b, 1024, 12, 12), (b, 1024, 12, 12), (b, 1024, 12, 12)] -2, -1 same.
             dinofeat = self.forward_dino(img) #(b, 768, 160, 160)
@@ -313,7 +313,7 @@ class DinoFeaturizer(nn.Module):
             num_classes=0)
         for p in self.model.parameters():
             p.requires_grad = False
-        self.model.cuda()
+        # self.model.cuda()
         self.dropout = torch.nn.Dropout2d(p=.1)
 
         if arch == "vit_small":

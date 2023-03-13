@@ -18,9 +18,9 @@ from tqdm import tqdm
 def parse_arguments():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--data_root', type=str, default="/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/cityscapes")
-    ds = 'med' # 'city', 'coco'
-    parser.add_argument('--data_root', type=str, default=f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'med' if ds == 'med' else ('cityscapes' if ds == 'city' else 'coco_stuff')}")   
-    parser.add_argument('--cityscapes', action='store_true', default= 'med' if ds == 'med' else (ds == 'city'))
+    ds = 'breast' # 'med' # 'city', 'coco'
+    parser.add_argument('--data_root', type=str, default='/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/breastdata_test') # f"/home/zhulifu/unsup_seg/STEGO-master/seg_dataset/{'med' if ds == 'med' else ('cityscapes' if ds == 'city' else 'coco_stuff')}")   
+    parser.add_argument('--cityscapes', action='store_true', default=ds)
     
     parser.add_argument('--save_root', type=str, default="/home/zhulifu/unsup_seg/train_out")
     parser.add_argument('--save_model_path', type=str, default="/home/zhulifu/unsup_seg/train_out")
@@ -52,7 +52,7 @@ def parse_arguments():
     
     ## methods to choose:
     ## cam, multiscale, cam_multiscale
-    method = 'swin_only_LF'
+    method = 'dino'
     parser.add_argument('--method', type=str, default=method)
     parser.add_argument('--batch_size_cluster', type=int, default=256)
     
@@ -72,7 +72,7 @@ def parse_arguments():
     parser.add_argument('--X', type=int, default=80)
 
     # Loss. 
-    classes = 4 if ds == 'med' else 28
+    classes = 2 if ds == 'breast' else (4 if ds == 'med' else 28)
     parser.add_argument('--metric_train', type=str, default='cosine')   
     parser.add_argument('--metric_test', type=str, default='cosine')
     parser.add_argument('--K_cluster', type=int, default=classes) # number of clusters, which will be further classified into K_train
@@ -112,7 +112,8 @@ def parse_arguments():
 
 def draw_segs(args, logger, epoch=0):
     model, optimizer, classifier1 = get_model_and_optimizer(args, logger)
-    ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
+    # ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
+    ds = args.cityscapes
     prefix = f'train_{ds}{args.arch}_{args.res}_{args.method}'
     if args.arch == 'stego':
         mapping = torch.load('/home/zhulifu/unsup_seg/trials_unsupervised_segmentation/gen_files/' + ds + 'stego_320_assignments.pth')
@@ -162,7 +163,8 @@ def draw_segs(args, logger, epoch=0):
     logger.info('Start computing segmentations.')
     t1 = t.time()
     all_results = []
-    out_dir='draw_image_result_med' if args.cityscapes == 'med' else('draw_image_result' if args.cityscapes else 'draw_image_result_coco')
+    out_dir = 'draw_image_result_breast'
+    # out_dir='draw_image_result_med' if args.cityscapes == 'med' else('draw_image_result' if args.cityscapes else 'draw_image_result_coco')
     cmap = create_cityscapes_colormap()
     unorm = UnNormalize(*getStat())
     trial_name = prefix[6:]
@@ -250,7 +252,7 @@ def redraw_segs(testloader, tar_dir='/home/zhulifu/unsup_seg/trials_unsupervised
                     img[lb < 0] = 0
                     img = Image.fromarray(img.astype('uint8')).convert('RGB')
                     img.save('new_dir/'+file)
-                    # cv2.imwrite(seg_name, img)
+
 
 def get_stego_picie_hist():
     for arch in ['stego', 'picie']:
@@ -317,9 +319,9 @@ def get_stego_picie_hist():
 
 if __name__ == "__main__":
     args = parse_arguments()
-    args.cityscapes = 'med'
-    ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
-
+    # args.cityscapes = 'med'
+    # ds = 'med_' if args.cityscapes == 'med' else ('coco_' if not args.cityscapes else '')
+    ds = 'breast'
     prefix = f'train_linear_{args.arch}_{args.res}_{args.method}'
     # prefix = f'train_picie_{args.arch}_{args.res}_{args.method}'
     args.save_root = './train_results/' + prefix
@@ -333,7 +335,7 @@ if __name__ == "__main__":
     if not os.path.exists(args.save_eval_path):
         os.mkdir(args.save_eval_path)
     logger = set_logger(os.path.join(args.save_eval_path, 'train.log'))
-    draw_segs(args, logger, epoch=0)
+    draw_segs(args, logger, epoch=2)
     # import os
     # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     # get_stego_picie_hist()
